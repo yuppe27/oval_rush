@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>OVAL RUSH</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <canvas id="gameCanvas" tabindex="0" aria-label="Game screen"></canvas>
+
+    <!-- ══ Title Screen ══ -->
+    <div id="title-screen">
+        <div id="title-logo">OVAL RUSH</div>
+        <div id="title-press-start">PRESS START</div>
+        <div id="title-nav">
+            <button class="title-btn" data-action="start">ARCADE MODE</button>
+            <button class="title-btn" data-action="ranking">RANKING</button>
+            <button class="title-btn" data-action="options">OPTIONS</button>
+        </div>
+        <div id="title-demo-label">DEMO RUNNING</div>
+        <div id="title-copyright">&copy; 2026 OVAL RUSH Project</div>
+    </div>
+
+    <!-- ══ Selection Screen ══ -->
+    <div id="select-screen">
+        <div id="select-panel">
+            <div id="select-title">SELECT</div>
+            <div class="select-section">
+                <div class="select-label">MODE</div>
+                <div id="select-mode" class="select-carousel" data-key="mode">
+                    <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                    <div class="carousel-value" id="sel-mode-name">ARCADE</div>
+                    <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                </div>
+                <div class="select-info" id="sel-mode-info"></div>
+            </div>
+            <div class="select-section">
+                <div class="select-label">COURSE</div>
+                <div id="select-course" class="select-carousel" data-key="course">
+                    <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                    <div class="carousel-value" id="sel-course-name">Thunder Oval</div>
+                    <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                </div>
+                <div class="select-info" id="sel-course-info"></div>
+            </div>
+            <div class="select-section">
+                <div class="select-label">VEHICLE</div>
+                <div id="select-vehicle" class="select-carousel" data-key="vehicle">
+                    <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                    <div class="carousel-value" id="sel-vehicle-name">Falcon MK-I</div>
+                    <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                </div>
+                <div class="select-info" id="sel-vehicle-info"></div>
+            </div>
+            <div class="select-section select-row-2col">
+                <div class="select-col">
+                    <div class="select-label">DIFFICULTY</div>
+                    <div id="select-difficulty" class="select-carousel" data-key="difficulty">
+                        <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                        <div class="carousel-value" id="sel-difficulty-name">NORMAL</div>
+                        <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                    </div>
+                </div>
+                <div class="select-col">
+                    <div class="select-label">TRANSMISSION</div>
+                    <div id="select-transmission" class="select-carousel" data-key="transmission">
+                        <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                        <div class="carousel-value" id="sel-transmission-name">AT</div>
+                        <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                    </div>
+                </div>
+            </div>
+            <div id="select-actions">
+                <button id="select-back" class="select-btn secondary">BACK</button>
+                <button id="select-start" class="select-btn primary">START RACE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ Options Screen ══ -->
+    <div id="options-screen">
+        <div id="options-panel">
+            <div id="options-title">OPTIONS</div>
+            <div class="option-row">
+                <label>BGM VOLUME</label>
+                <input type="range" id="opt-bgm" min="0" max="100" value="70">
+                <span class="opt-val" id="opt-bgm-val">70</span>
+            </div>
+            <div class="option-row">
+                <label>SE VOLUME</label>
+                <input type="range" id="opt-se" min="0" max="100" value="80">
+                <span class="opt-val" id="opt-se-val">80</span>
+            </div>
+            <div class="option-row">
+                <label>ENGINE VOLUME</label>
+                <input type="range" id="opt-engine" min="0" max="100" value="60">
+                <span class="opt-val" id="opt-engine-val">60</span>
+            </div>
+            <div class="option-row">
+                <label>DEFAULT TRANSMISSION</label>
+                <div class="opt-toggle" id="opt-transmission">
+                    <button class="opt-choice active" data-val="AT">AT</button>
+                    <button class="opt-choice" data-val="MT">MT</button>
+                </div>
+            </div>
+            <div class="option-row">
+                <label>QUALITY</label>
+                <div class="opt-toggle" id="opt-quality">
+                    <button class="opt-choice active" data-val="auto">AUTO</button>
+                    <button class="opt-choice" data-val="high">HIGH</button>
+                    <button class="opt-choice" data-val="low">LOW</button>
+                </div>
+            </div>
+            <div class="option-row">
+                <label>STEERING</label>
+                <div class="opt-toggle" id="opt-steering">
+                    <button class="opt-choice active" data-val="touch">TOUCH</button>
+                    <button class="opt-choice" data-val="gyro">GYRO</button>
+                </div>
+            </div>
+            <div id="options-actions">
+                <button id="options-close" class="select-btn secondary">BACK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="ranking-screen">
+        <div id="ranking-panel">
+            <div id="ranking-title">HIGH SCORES</div>
+            <div class="select-section">
+                <div class="select-label">COURSE</div>
+                <div id="ranking-course" class="select-carousel" data-key="course">
+                    <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                    <div class="carousel-value" id="ranking-course-name">Thunder Oval Speedway</div>
+                    <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                </div>
+            </div>
+            <div class="select-section">
+                <div class="select-label">DIFFICULTY</div>
+                <div id="ranking-difficulty" class="select-carousel" data-key="difficulty">
+                    <button class="carousel-arrow left" data-dir="-1">&lsaquo;</button>
+                    <div class="carousel-value" id="ranking-difficulty-name">NORMAL</div>
+                    <button class="carousel-arrow right" data-dir="1">&rsaquo;</button>
+                </div>
+            </div>
+            <div id="ranking-list-panel"></div>
+            <div id="ranking-actions">
+                <button id="ranking-close" class="select-btn secondary">BACK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ Pause Screen ══ -->
+    <div id="pause-screen">
+        <div id="pause-panel">
+            <div id="pause-title">PAUSED</div>
+            <button class="pause-btn" data-action="resume">RESUME</button>
+            <button class="pause-btn" data-action="retry">RETRY</button>
+            <button class="pause-btn" data-action="quit">QUIT TO TITLE</button>
+        </div>
+    </div>
+
+    <!-- HUD Overlay -->
+    <div id="hud">
+        <!-- Top-left: Lap -->
+        <div id="hud-lap">LAP 1 / 8</div>
+        <div id="hud-position">POS 12 / 12</div>
+        <div id="hud-gap">AHEAD --.-s / BEHIND --.-s</div>
+        <div id="hud-slipstream"></div>
+        <div id="hud-ai-debug"></div>
+
+        <!-- Top-right: Timer -->
+        <div id="hud-timer-area">
+            <div id="hud-timer">00:40</div>
+            <div id="hud-total-time">TIME 00:00.000</div>
+            <div id="hud-best-lap">BEST --:--.---</div>
+        </div>
+
+        <!-- Bottom-left: Speed & Gear -->
+        <div id="hud-bottom-left">
+            <div id="hud-speed">0 km/h</div>
+            <div id="hud-gear">GEAR: 1</div>
+        </div>
+    </div>
+
+    <!-- Center: Countdown -->
+    <div id="hud-countdown"></div>
+
+    <!-- Center: Notifications -->
+    <div id="hud-notify"></div>
+
+    <!-- Boost/Slipstream fullscreen effects -->
+    <div id="boost-fx">
+        <div id="boost-lines"></div>
+        <div id="boost-blur"></div>
+    </div>
+
+    <!-- Result screen overlay -->
+    <div id="hud-result">
+        <div id="hud-result-content"></div>
+    </div>
+
+    <!-- Loading screen -->
+    <div id="loading">
+        <div id="loading-title">OVAL RUSH</div>
+        <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+        <div id="loading-text">Loading...</div>
+        <div id="loading-tip"></div>
+    </div>
+
+    <!-- Audio unlock overlay -->
+    <div id="audio-unlock">
+        <div id="audio-unlock-panel">
+            <div id="audio-unlock-title">AUDIO ENABLE</div>
+            <div id="audio-unlock-text">Click the game screen to activate it and enable sound.</div>
+            <div id="audio-unlock-status"></div>
+        </div>
+    </div>
+
+    <!-- Mobile touch controls -->
+    <div id="touch-controls">
+        <div id="touch-steer" class="touch-zone left">
+            <div id="touch-steer-knob"></div>
+        </div>
+        <div id="touch-pedals" class="touch-zone right">
+            <button id="touch-accel" class="touch-pedal accel">ACC</button>
+            <button id="touch-brake" class="touch-pedal brake">BRK</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="js/main.js?v=5"></script>
+</body>
+</html>
