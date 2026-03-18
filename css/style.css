@@ -1090,3 +1090,108 @@ body {
         left: 20px;
     }
 }
+
+/* ═══════════════════════════════════════════════════
+   PODIUM FX
+   ═══════════════════════════════════════════════════ */
+
+/* Rank badge text */
+.podium-rank-text {
+    font-size: clamp(38px, 8vw, 76px);
+    font-weight: 900;
+    letter-spacing: 6px;
+    color: var(--podium-color, #FFD700);
+    text-shadow:
+        0 0 32px var(--podium-shadow, rgba(255,215,0,0.9)),
+        0 0 70px var(--podium-shadow, rgba(255,215,0,0.4)),
+        3px 3px 0 rgba(0, 0, 0, 0.65);
+    line-height: 1;
+}
+
+/* "WINNER!" sub-label shown only for 1st place */
+.podium-winner-label {
+    font-size: clamp(18px, 4vw, 36px);
+    font-weight: 800;
+    letter-spacing: 10px;
+    color: #fff;
+    text-shadow:
+        0 0 24px var(--podium-shadow, rgba(255,215,0,0.9)),
+        0 0 50px var(--podium-shadow, rgba(255,215,0,0.5));
+    animation: podium-winner-pulse 0.65s ease-in-out infinite alternate;
+    margin-top: 10px;
+}
+
+/* Rank badge zoom-in entrance */
+@keyframes podium-badge-in {
+    0%   { transform: scale(0.25) translateY(-80px); opacity: 0; }
+    65%  { transform: scale(1.08) translateY(4px);   opacity: 1; }
+    100% { transform: scale(1.00) translateY(0);     opacity: 1; }
+}
+
+/* WINNER! label subtle pulse */
+@keyframes podium-winner-pulse {
+    0%   { opacity: 0.80; transform: scale(1.00); }
+    100% { opacity: 1.00; transform: scale(1.03); }
+}
+
+/* Screen edge glow breathing */
+@keyframes podium-glow-pulse {
+    0%   { opacity: 0.55; }
+    100% { opacity: 1.00; }
+}
+
+/* Confetti pieces falling with lateral drift */
+@keyframes confetti-fall {
+    0%   { transform: translateY(0) translateX(0) rotate(0deg);                       opacity: 1;   }
+    80%  { opacity: 1; }
+    100% { transform: translateY(110vh) translateX(var(--drift, 0px)) rotate(540deg); opacity: 0;   }
+}
+
+/* Canvas shake for 1st place finish */
+@keyframes camera-shake {
+    0%,  100% { transform: translate(0,    0); }
+    10%       { transform: translate(-5px,  4px); }
+    20%       { transform: translate( 6px, -3px); }
+    30%       { transform: translate(-4px, -5px); }
+    40%       { transform: translate( 4px,  3px); }
+    50%       { transform: translate(-3px,  2px); }
+    60%       { transform: translate( 2px, -2px); }
+    70%       { transform: translate(-1px,  1px); }
+    80%       { transform: translate( 1px,  0);   }
+}
+
+#gameCanvas.camera-shake {
+    animation: camera-shake 0.6s ease-out;
+}
+
+/* ── Result screen podium backgrounds ── */
+#hud-result.podium-result-1 {
+    background: radial-gradient(ellipse at 50% 40%, rgba(255, 215, 0, 0.12) 0%, rgba(0, 0, 0, 0.82) 65%);
+}
+
+#hud-result.podium-result-2 {
+    background: radial-gradient(ellipse at 50% 40%, rgba(192, 192, 220, 0.10) 0%, rgba(0, 0, 0, 0.82) 65%);
+}
+
+#hud-result.podium-result-3 {
+    background: radial-gradient(ellipse at 50% 40%, rgba(205, 127, 50, 0.10) 0%, rgba(0, 0, 0, 0.82) 65%);
+}
+
+/* ── Result title podium color variants ── */
+.result-title.podium-1st {
+    font-size: clamp(32px, 6vw, 52px);
+    color: #FFD700;
+    text-shadow:
+        0 0 24px rgba(255, 215,  0, 0.70),
+        0 0 48px rgba(255, 165,  0, 0.35);
+}
+
+.result-title.podium-2nd {
+    color: #C8C8D8;
+    text-shadow: 0 0 20px rgba(200, 200, 220, 0.65);
+}
+
+.result-title.podium-3rd {
+    color: #CD7F32;
+    text-shadow: 0 0 20px rgba(205, 127,  50, 0.65);
+}

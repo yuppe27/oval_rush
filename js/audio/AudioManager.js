@@ -1,11 +1,14 @@
 import { EngineSound } from './EngineSound.js';
 
 const MUSIC_TRACKS = {
-    title: 'assets/audio/bgm/title.mp3',
-    race1: 'assets/audio/bgm/race1.mp3',
-    race2: 'assets/audio/bgm/race2.mp3',
-    race3: 'assets/audio/bgm/race3.mp3',
-    result: 'assets/audio/bgm/result.mp3',
+    title:    'assets/audio/bgm/title.mp3',
+    race1:    'assets/audio/bgm/race1.mp3',
+    race2:    'assets/audio/bgm/race2.mp3',
+    race3:    'assets/audio/bgm/race3.mp3',
+    result:   'assets/audio/bgm/result.mp3',
+    victory1: 'assets/audio/bgm/victory1.mp3',
+    victory2: 'assets/audio/bgm/victory2.mp3',
+    victory3: 'assets/audio/bgm/victory3.mp3',
 };
 
 const COURSE_RACE_TRACKS = {
@@ -39,6 +42,7 @@ export class AudioManager {
         this.prevSpinCount = 0;
         this.prevShiftEventId = 0;
         this.goalSE = null;
+        this._finishPosition = 0;
         this._unlockEvents = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click', 'keydown'];
         this._unlockAttached = false;
         this.unlockOverlayEl = document.getElementById('audio-unlock');
@@ -172,14 +176,57 @@ export class AudioManager {
             this.activeMusicPlayer = null;
         }
         this.currentMusic = '_goal';
-        // Play goal jingle, then result BGM once
+        // Play goal jingle, then rank-appropriate fanfare, then result BGM
         if (this.goalSE) {
             this.goalSE.currentTime = 0;
             this.goalSE.onended = () => {
-                this._playResultOnce();
+                this._playAfterGoal();
             };
             this.goalSE.play().catch(() => {});
         }
+    }
+
+    /** Called by main.js once the finish position is determined. */
+    setFinishPosition(pos) {
+        this._finishPosition = pos;
+    }
+
+    _playAfterGoal() {
+        const pos = this._finishPosition;
+        if (pos >= 1 && pos <= 3) {
+            this._playVictoryTrack(pos);
+        } else {
+            this._playResultOnce();
+        }
+    }
+
+    /**
+     * Play the victory mp3 for the given finish position (1–3),
+     * then automatically start result BGM when it ends.
+     */
+    _playVictoryTrack(pos) {
+        const key    = `victory${pos}`;
+        const player = this.musicPlayers[key];
+        if (!player) {
+            this._playResultOnce();
+            return;
+        }
+
+        if (this.activeMusicPlayer && this.activeMusicPlayer !== player) {
+            this.activeMusicPlayer.pause();
+            this.activeMusicPlayer.currentTime = 0;
+        }
+
+        if (this.musicGain && this._musicGainLevel) {
+            this.musicGain.gain.value = this._musicGainLevel;
+        }
+
+        player.loop         = false;
+        player.currentTime  = 0;
+        player.onended      = () => this._playResultOnce();
+        this.activeMusicPlayer = player;
+        this.currentMusic      = '_victory';
+        player.play().catch(() => {});
     }
 
     playTimeUp() {
@@ -232,16 +279,22 @@ export class AudioManager {
         this.prevWallHitCount = 0;
         this.prevSpinCount = 0;
         this.prevShiftEventId = 0;
+        this._finishPosition = 0;
         this.musicTempoScale = 1;
         this._applyMusicTempoScale();
-        // Reset goal SE and restore result loop
+        // Reset goal SE
         if (this.goalSE) {
             this.goalSE.pause();
             this.goalSE.currentTime = 0;
             this.goalSE.onended = null;
         }
+        // Reset victory tracks
+        for (let i = 1; i <= 3; i++) {
+            const vp = this.musicPlayers[`victory${i}`];
+            if (vp) { vp.pause(); vp.currentTime = 0; vp.onended = null; }
+        }
         const resultPlayer = this.musicPlayers['result'];
-        if (resultPlayer) resultPlayer.loop = true;
+        if (resultPlayer) resultPlayer.currentTime = 0;
         this.playTitleScreenMusic();
     }
 
@@ -299,10 +352,13 @@ export class AudioManager {
     }
 
     _initMusicPlayers() {
+        // Tracks that should NOT loop (play once then stop)
+        const noLoop = new Set(['result', 'victory1', 'victory2', 'victory3']);
+
         for (const [key, path] of Object.entries(MUSIC_TRACKS)) {
             const audio = new Audio(path);
             audio.preload = 'auto';
-            audio.loop = true;
+            audio.loop = !noLoop.has(key);
             audio.playsInline = true;
 
             const source = this.audioContext.createMediaElementSource(audio);
@@ -380,8 +436,8 @@ export class AudioManager {
         if (race?.state === 'racing' || race?.state === 'countdown' || race?.state === 'grid_intro') {
             nextMusic = this.raceMusicTrack;
         } else if (race?.state === 'finish_celebration' || race?.state === 'finished') {
-            nextMusic = this.currentMusic === '_goal' || this.currentMusic === '_result_once'
-                ? this.currentMusic : '_goal';
+            const stable = ['_goal', '_victory', '_result_once'];
+            nextMusic = stable.includes(this.currentMusic) ? this.currentMusic : '_goal';
         } else if (race?.state === 'gameover') {
             nextMusic = 'result';
         }

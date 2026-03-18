@@ -227,10 +227,38 @@ export class HUD {
             `;
         }
 
+        // Determine title text and CSS class based on mode and position
+        let titleText, titleCls;
+        if (!isFinished) {
+            titleText = '';
+            titleCls  = '';
+        } else if (race.mode === 'time_attack') {
+            titleText = 'TIME ATTACK CLEAR!';
+            titleCls  = 'result-title';
+        } else if (race.mode === 'free_run') {
+            titleText = 'FREE RUN COMPLETE';
+            titleCls  = 'result-title';
+        } else if (race.mode === 'arcade' && pos === 1) {
+            titleText = '1ST PLACE  WINNER!';
+            titleCls  = 'result-title podium-1st';
+            this.resultEl.className = 'podium-result-1';
+        } else if (race.mode === 'arcade' && pos === 2) {
+            titleText = '2ND PLACE';
+            titleCls  = 'result-title podium-2nd';
+            this.resultEl.className = 'podium-result-2';
+        } else if (race.mode === 'arcade' && pos === 3) {
+            titleText = '3RD PLACE';
+            titleCls  = 'result-title podium-3rd';
+            this.resultEl.className = 'podium-result-3';
+        } else {
+            titleText = 'RACE COMPLETE!';
+            titleCls  = 'result-title';
+        }
+
         let html = '';
         if (isFinished) {
             html = `
-                <div class="result-title">${race.mode === 'time_attack' ? 'TIME ATTACK CLEAR!' : (race.mode === 'free_run' ? 'FREE RUN COMPLETE' : 'RACE COMPLETE!')}</div>
+                <div class="${titleCls}">${titleText}</div>
                 <div class="result-stats">
                     <div>POSITION: ${pos} / ${total}</div>
                     <div>TOTAL TIME: ${totalTime}</div>
@@ -287,6 +315,7 @@ export class HUD {
 
     hideResult() {
         this.resultEl.style.display = 'none';
+        this.resultEl.className = '';
         this._resultShown = false;
     }
 

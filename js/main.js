@@ -12,6 +12,7 @@ import { AIController } from './ai/AIController.js';
 import { SlipstreamSystem } from './effects/SlipstreamSystem.js';
 import { TrackEffects } from './effects/TrackEffects.js';
 import { BoostFX } from './effects/BoostFX.js';
+import { PodiumFX } from './effects/PodiumFX.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { resolveVehiclePreset, toVehiclePhysics } from './vehicles/VehicleParams.js';
 import { UIManager } from './ui/UIManager.js';
@@ -96,6 +97,7 @@ class Game {
         this.slipstreamSystem = new SlipstreamSystem(this.renderer.scene);
         this.trackEffects = new TrackEffects(this.renderer.scene);
         this.boostFX = new BoostFX();
+        this.podiumFX = new PodiumFX();
 
         this._placePlayerAtStart();
         this.player.addToScene(this.renderer.scene);
@@ -126,7 +128,11 @@ class Game {
                 this.raceManager.justEnteredRacing
             );
             this._syncRollingStartAutoDrive();
-            this.raceManager.finalizeFinishOrder(this.player);
+            if (this.raceManager.finalizeFinishOrder(this.player) && this.mode === 'arcade') {
+                const pos = this.raceManager.playerPosition;
+                this.audio.setFinishPosition(pos);
+                this.podiumFX.show(pos);
+            }
             this._syncPauseAvailability();
             this.trackEffects.update(dt, this.player, this.raceManager.state);
         });
@@ -276,6 +282,7 @@ class Game {
         this.slipstreamSystem.reset(this.player);
         this.trackEffects.reset();
         this.boostFX.reset();
+        this.podiumFX.reset();
         this.audio.resetForRetry();
         this._placePlayerAtStart();
         this._pauseAvailability = true;
@@ -288,6 +295,7 @@ class Game {
     destroy() {
         this.gameLoop.stop();
         this.hud.reset();
+        this.podiumFX.reset();
         if (this._resultKeyHandler) {
             window.removeEventListener('keydown', this._resultKeyHandler);
             this._resultKeyHandler = null;
