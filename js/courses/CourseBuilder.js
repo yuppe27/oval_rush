@@ -663,7 +663,142 @@ export class CourseBuilder {
             this.group.add(pillar);
         }
 
+        this._buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight);
         this._buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight);
+    }
+
+    _buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight) {
+        const startSp = this.sampledPoints[this.startLineIndex];
+        if (!startSp) return;
+
+        const centerToStart = new THREE.Vector3(startSp.position.x - cx, 0, startSp.position.z - cz);
+        const startAngle = Math.atan2(centerToStart.z, centerToStart.x);
+        const halfSpan = Math.PI * 0.16;
+        const roofStart = startAngle - halfSpan;
+        const roofEnd = startAngle + halfSpan;
+        const segments = 18;
+
+        const roofInnerR = standInnerR + 12;
+        const roofOuterR = standOuterR + 20;
+        const frontY = standHeight + 11;
+        const backY = wallTopHeight + 12;
+        const crownLift = 2.5;
+        const roofThickness = 1.6;
+
+        const roofMat = new THREE.MeshStandardMaterial({
+            color: 0xc8d2db,
+            roughness: 0.42,
+            metalness: 0.58,
+            side: THREE.DoubleSide,
+        });
+        const trimMat = new THREE.MeshStandardMaterial({
+            color: 0x51606f,
+            roughness: 0.5,
+            metalness: 0.72,
+        });
+        const supportMat = new THREE.MeshStandardMaterial({
+            color: 0x627181,
+            roughness: 0.54,
+            metalness: 0.62,
+        });
+
+        const roofVerts = [];
+        const roofIdx = [];
+        for (let i = 0; i <= segments; i++) {
+            const frac = i / segments;
+            const ang = THREE.MathUtils.lerp(roofStart, roofEnd, frac);
+            const c = Math.cos(ang);
+            const s = Math.sin(ang);
+            const arcLift = Math.sin(frac * Math.PI) * crownLift;
+            const innerTopY = frontY + arcLift;
+            const outerTopY = backY + arcLift;
+            const innerBottomY = innerTopY - roofThickness;
+            const outerBottomY = outerTopY - roofThickness;
+
+            roofVerts.push(cx + c * roofInnerR, innerTopY, cz + s * roofInnerR);
+            roofVerts.push(cx + c * roofOuterR, outerTopY, cz + s * roofOuterR);
+            roofVerts.push(cx + c * roofInnerR, innerBottomY, cz + s * roofInnerR);
+            roofVerts.push(cx + c * roofOuterR, outerBottomY, cz + s * roofOuterR);
+
+            if (i < segments) {
+                const base = i * 4;
+                const next = base + 4;
+                roofIdx.push(base, next, base + 1, base + 1, next, next + 1);
+                roofIdx.push(base + 2, base + 3, next + 2, base + 3, next + 3, next + 2);
+                roofIdx.push(base, base + 2, next, base + 2, next + 2, next);
+                roofIdx.push(base + 1, next + 1, base + 3, base + 3, next + 1, next + 3);
+            }
+        }
+
+        const roofGeo = new THREE.BufferGeometry();
+        roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(roofVerts, 3));
+        roofGeo.setIndex(roofIdx);
+        roofGeo.computeVertexNormals();
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.castShadow = true;
+        roof.receiveShadow = true;
+        this.group.add(roof);
+
+        const fasciaSegments = 12;
+        for (let i = 0; i < fasciaSegments; i++) {
+            const fracA = i / fasciaSegments;
+            const fracB = (i + 1) / fasciaSegments;
+            const angA = THREE.MathUtils.lerp(roofStart, roofEnd, fracA);
+            const angB = THREE.MathUtils.lerp(roofStart, roofEnd, fracB);
+            const midFrac = (i + 0.5) / fasciaSegments;
+            const midAng = THREE.MathUtils.lerp(roofStart, roofEnd, midFrac);
+            const arcLift = Math.sin(midFrac * Math.PI) * crownLift;
+            const segLength = 2 * roofInnerR * Math.sin((angB - angA) * 0.5);
+            const frontTrim = new THREE.Mesh(
+                new THREE.BoxGeometry(2.4, 1.1, segLength + 0.4),
+                trimMat
+            );
+            frontTrim.position.set(
+                cx + Math.cos(midAng) * roofInnerR,
+                frontY + arcLift - roofThickness * 0.5,
+                cz + Math.sin(midAng) * roofInnerR
+            );
+            frontTrim.rotation.y = -midAng;
+            frontTrim.castShadow = true;
+            this.group.add(frontTrim);
+        }
+
+        const supportAngles = 5;
+        const supportOuterR = standOuterR + 7;
+        for (let i = 0; i < supportAngles; i++) {
+            const frac = supportAngles === 1 ? 0.5 : i / (supportAngles - 1);
+            const ang = THREE.MathUtils.lerp(roofStart + 0.03, roofEnd - 0.03, frac);
+            const c = Math.cos(ang);
+            const s = Math.sin(ang);
+            const arcLift = Math.sin(frac * Math.PI) * crownLift;
+            const topY = backY + arcLift - roofThickness * 0.5;
+
+            const column = new THREE.Mesh(
+                new THREE.BoxGeometry(1.6, topY, 1.6),
+                supportMat
+            );
+            column.position.set(
+                cx + c * supportOuterR,
+                topY * 0.5,
+                cz + s * supportOuterR
+            );
+            column.castShadow = true;
+            this.group.add(column);
+
+            const braceLength = roofOuterR - supportOuterR + 1.8;
+            const brace = new THREE.Mesh(
+                new THREE.BoxGeometry(1.1, 1.1, braceLength),
+                supportMat
+            );
+            brace.position.set(
+                cx + c * (supportOuterR + braceLength * 0.5),
+                topY - 0.35,
+                cz + s * (supportOuterR + braceLength * 0.5)
+            );
+            brace.rotation.y = Math.PI * 0.5 - ang;
+            brace.castShadow = true;
+            this.group.add(brace);
+        }
     }
 
     _buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight) {
@@ -673,55 +808,142 @@ export class CourseBuilder {
         const bodyH = 1.5;
         const bodyD = 0.45;
 
-        const slopeAngle = Math.atan2(standHeight, standOuterR - standInnerR);
+        const startSp = this.sampledPoints[this.startLineIndex];
+        if (!startSp) return;
 
-        let total = 0;
+        const startAngle = Math.atan2(startSp.position.z - cz, startSp.position.x - cx);
+        const slopeAngle = Math.atan2(standHeight, standOuterR - standInnerR);
+        const packedHalfSpan = Math.PI * 0.18;
+        const grassSpans = [
+            { center: startAngle + Math.PI, halfWidth: Math.PI * 0.12 },
+            { center: startAngle + Math.PI * 0.63, halfWidth: Math.PI * 0.09 },
+            { center: startAngle - Math.PI * 0.63, halfWidth: Math.PI * 0.09 },
+        ];
+
+        const angleDelta = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+        const isInSpan = (angle, center, halfWidth) => Math.abs(angleDelta(angle, center)) <= halfWidth;
+
+        this._buildStadiumGrassSections(
+            cx,
+            cz,
+            standInnerR,
+            standOuterR,
+            standHeight,
+            slopeAngle,
+            grassSpans
+        );
+
         const rowData = [];
         for (let row = 0; row < numRows; row++) {
             const f = (row + 0.5) / numRows;
             const r = standInnerR + f * (standOuterR - standInnerR);
             const count = Math.floor((2 * Math.PI * r) / spacing);
-            rowData.push({ f, r, count });
-            total += count;
+            rowData.push({ row, f, r, count });
         }
 
         const colors = [0xcc2222, 0x2244cc, 0xddcc00, 0x22aa44, 0xffffff, 0xee6600, 0x9933cc, 0x44aacc, 0xee3388, 0x33ccaa];
         const geo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
         const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
-        const mesh = new THREE.InstancedMesh(geo, mat, total);
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-
-        const dummy = new THREE.Object3D();
-        const color = new THREE.Color();
-        let idx = 0;
         let seed = 12345;
         const rand = () => {
             seed = (seed * 1664525 + 1013904223) & 0xffffffff;
             return (seed >>> 0) / 0xffffffff;
         };
+        const placements = [];
 
-        for (const { f, r, count } of rowData) {
+        for (const { row, f, r, count } of rowData) {
             const baseY = f * standHeight + bodyH * 0.5 * Math.cos(slopeAngle) + 0.1;
             for (let j = 0; j < count; j++) {
                 const ang = (j / count) * Math.PI * 2;
-                dummy.position.set(
-                    cx + Math.cos(ang) * r,
-                    baseY,
-                    cz + Math.sin(ang) * r
-                );
-                dummy.rotation.set(0, ang + Math.PI, 0);
-                dummy.updateMatrix();
-                mesh.setMatrixAt(idx, dummy.matrix);
-                color.setHex(colors[Math.floor(rand() * colors.length)]);
-                mesh.setColorAt(idx, color);
-                idx++;
+                if (grassSpans.some(span => isInSpan(ang, span.center, span.halfWidth))) {
+                    continue;
+                }
+
+                const isPacked = isInSpan(ang, startAngle, packedHalfSpan);
+                const baseDensity = THREE.MathUtils.lerp(0.92, 0.68, row / Math.max(1, numRows - 1));
+                if (!isPacked && rand() > baseDensity) {
+                    continue;
+                }
+
+                placements.push({
+                    x: cx + Math.cos(ang) * r,
+                    y: baseY,
+                    z: cz + Math.sin(ang) * r,
+                    ang,
+                    color: colors[Math.floor(rand() * colors.length)],
+                });
             }
         }
+
+        if (!placements.length) return;
+
+        const mesh = new THREE.InstancedMesh(geo, mat, placements.length);
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+
+        const dummy = new THREE.Object3D();
+        const color = new THREE.Color();
+        placements.forEach((placement, idx) => {
+            dummy.position.set(placement.x, placement.y, placement.z);
+            dummy.rotation.set(0, placement.ang + Math.PI, 0);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(idx, dummy.matrix);
+            color.setHex(placement.color);
+            mesh.setColorAt(idx, color);
+        });
 
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         this.group.add(mesh);
+    }
+
+    _buildStadiumGrassSections(cx, cz, standInnerR, standOuterR, standHeight, slopeAngle, grassSpans) {
+        const rowCount = 8;
+        const rowDepth = (standOuterR - standInnerR) / rowCount;
+        const slopeLength = (rowDepth - 0.5) / Math.max(0.35, Math.cos(slopeAngle));
+        const grassMaterials = [
+            new THREE.MeshStandardMaterial({ color: 0x5f8a43, roughness: 0.98, side: THREE.DoubleSide }),
+            new THREE.MeshStandardMaterial({ color: 0x6c9650, roughness: 0.98, side: THREE.DoubleSide }),
+        ];
+
+        for (const span of grassSpans) {
+            const segmentCount = Math.max(5, Math.round((span.halfWidth * 2) / 0.12));
+            for (let row = 0; row < rowCount; row++) {
+                const innerR = standInnerR + row * rowDepth + 0.4;
+                const outerR = standInnerR + (row + 1) * rowDepth - 0.4;
+                const centerR = (innerR + outerR) * 0.5;
+                const surfaceY = (((centerR - standInnerR) / (standOuterR - standInnerR)) * standHeight) + 0.18;
+                const grassMat = grassMaterials[row % grassMaterials.length];
+
+                for (let i = 0; i < segmentCount; i++) {
+                    const fracA = i / segmentCount;
+                    const fracB = (i + 1) / segmentCount;
+                    const angA = THREE.MathUtils.lerp(span.center - span.halfWidth, span.center + span.halfWidth, fracA);
+                    const angB = THREE.MathUtils.lerp(span.center - span.halfWidth, span.center + span.halfWidth, fracB);
+                    const midAng = (angA + angB) * 0.5;
+                    const tangent = new THREE.Vector3(-Math.sin(midAng), 0, Math.cos(midAng)).normalize();
+                    const outward = new THREE.Vector3(Math.cos(midAng), 0, Math.sin(midAng)).normalize();
+                    const slopeDir = new THREE.Vector3(outward.x, Math.tan(slopeAngle), outward.z).normalize();
+                    const normal = new THREE.Vector3().crossVectors(tangent, slopeDir).normalize();
+                    const segWidth = 2 * centerR * Math.sin((angB - angA) * 0.5);
+                    const patch = new THREE.Mesh(
+                        new THREE.PlaneGeometry(segWidth + 0.7, slopeLength),
+                        grassMat
+                    );
+                    patch.position.set(
+                        cx + Math.cos(midAng) * centerR,
+                        surfaceY,
+                        cz + Math.sin(midAng) * centerR
+                    );
+                    patch.position.addScaledVector(normal, 0.12);
+                    patch.quaternion.setFromRotationMatrix(
+                        new THREE.Matrix4().makeBasis(tangent, slopeDir, normal)
+                    );
+                    patch.receiveShadow = true;
+                    this.group.add(patch);
+                }
+            }
+        }
     }
 
     _buildSeasideScenery() {
