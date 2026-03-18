@@ -611,7 +611,7 @@ export class PlayerVehicle {
             const holdN = THREE.MathUtils.clamp(this.steerHoldTime / DRIFT_TUNING.holdFullSec, 0, 1);
             const noseBase = THREE.MathUtils.lerp(0.05, 0.11, speedN);
             const noseTarget = (
-                driftControlBasis * noseBase * (1 + holdN * DRIFT_TUNING.noseHoldGain)
+                steerBasis * noseBase * (1 + holdN * DRIFT_TUNING.noseHoldGain)
                 + this.driftAngle * DRIFT_TUNING.noseDriftAngleBias
             );
             this.driftNoseYaw = THREE.MathUtils.lerp(
