@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GROUND_SIZE } from '../core/Constants.js';
+import { SkyDome } from './SkyDome.js';
 
 export class Renderer {
     constructor(canvas, options = {}) {
@@ -13,11 +14,12 @@ export class Renderer {
         this.renderer.toneMappingExposure = 1.0;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x87ceeb);
+        this.scene.background = null;
         this.scene.fog = new THREE.Fog(0x87ceeb, 200, 800);
 
         this._setupLights();
         this._setupGround();
+        this.skyDome = new SkyDome(this.scene);
         this.applyQualityProfile(options.quality ?? 'auto');
 
         this._handleResize = () => this._onResize();
@@ -80,6 +82,15 @@ export class Renderer {
         this.scene.add(ground);
     }
 
+    setSky(courseId) {
+        this.skyDome.applyPreset(courseId);
+        this.scene.fog.color.setHex(this.skyDome.fogHex);
+    }
+
+    updateSky(camera) {
+        this.skyDome.followCamera(camera);
+    }
+
     render(camera) {
         this.renderer.render(this.scene, camera);
     }
@@ -98,6 +109,7 @@ export class Renderer {
                 });
             }
         });
+        this.skyDome.dispose();
         this.scene.clear();
         this.renderer.dispose();
     }

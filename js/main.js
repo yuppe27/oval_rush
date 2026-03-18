@@ -157,6 +157,7 @@ class Game {
             this.hud.update(this.player, this.raceManager, rawDt);
             this.boostFX.update(rawDt, this.player);
             this.audio.update(rawDt, this.player, this.raceManager);
+            this.renderer.updateSky(this.cameraController.camera);
             this.renderer.render(this.cameraController.camera);
 
             if ((this.raceManager.state === 'finished' || this.raceManager.state === 'gameover')
@@ -448,22 +449,17 @@ class Game {
     }
 
     _applyCourseAtmosphere(courseId) {
+        this.renderer.setSky(courseId);
         if (courseId === 'seaside') {
-            this.renderer.scene.background.setHex(0x8dc8e8);
-            this.renderer.scene.fog.color.setHex(0x8dc8e8);
             this.renderer.scene.fog.near = 180;
             this.renderer.scene.fog.far = 760;
             return;
         }
         if (courseId === 'mountain') {
-            this.renderer.scene.background.setHex(0xb6c2cc);
-            this.renderer.scene.fog.color.setHex(0xb6c2cc);
             this.renderer.scene.fog.near = 120;
             this.renderer.scene.fog.far = 620;
             return;
         }
-        this.renderer.scene.background.setHex(0x87ceeb);
-        this.renderer.scene.fog.color.setHex(0x87ceeb);
         this.renderer.scene.fog.near = 200;
         this.renderer.scene.fog.far = 800;
     }
@@ -593,6 +589,7 @@ class TitleDemo {
             this.renderer.dirLight.target.position.copy(pPos);
             this.renderer.dirLight.target.updateMatrixWorld();
             this.cameraController.update(rawDt, this.player, null);
+            this.renderer.updateSky(this.cameraController.camera);
             this.renderer.render(this.cameraController.camera);
         });
 
@@ -609,15 +606,7 @@ class TitleDemo {
     }
 
     _applyCourseAtmosphere() {
-        if (this.courseData.id === 'seaside') {
-            this.renderer.scene.background.setHex(0x8dc8e8);
-            this.renderer.scene.fog.color.setHex(0x8dc8e8);
-            return;
-        }
-        if (this.courseData.id === 'mountain') {
-            this.renderer.scene.background.setHex(0xb6c2cc);
-            this.renderer.scene.fog.color.setHex(0xb6c2cc);
-        }
+        this.renderer.setSky(this.courseData.id);
     }
 
     destroy() {
