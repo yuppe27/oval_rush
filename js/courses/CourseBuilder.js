@@ -38,6 +38,7 @@ export class CourseBuilder {
         this._buildRoadSurface();
         this._buildWalls();
         this._buildStartLine(courseData);
+        this._buildStartGate();
         this._buildCheckpointMarkers(courseData);
         this._buildScenery(courseData);
 
@@ -311,6 +312,92 @@ export class CourseBuilder {
         this._placeSurfacePlane(mesh, sp, 0.07);
         mesh.receiveShadow = true;
         this.group.add(mesh);
+    }
+
+    // ─── Start gate ────────────────────────────────────────────────────────────
+
+    _buildStartGate() {
+        const sp = this.sampledPoints[this.startLineIndex];
+        const pillarH = 9.0;
+        const pillarR = 0.45;
+        const barH = 0.7;
+        const margin = 0.6;
+        const halfWidth = sp.width * 0.5 + margin;
+
+        // Road frame: local X = sp.right, local Y = sp.up, local Z = sp.forward
+        const basis = new THREE.Matrix4().makeBasis(
+            sp.right.clone().normalize(),
+            sp.up.clone().normalize(),
+            sp.forward.clone().normalize()
+        );
+        const q = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+        const pillarMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5, metalness: 0.15 });
+        const barMat    = new THREE.MeshStandardMaterial({ color: 0xcc1111, roughness: 0.4, metalness: 0.25 });
+
+        // Left pillar
+        const pillarGeo = new THREE.CylinderGeometry(pillarR, pillarR, pillarH, 10);
+        const leftPillar = new THREE.Mesh(pillarGeo, pillarMat);
+        leftPillar.position.copy(sp.position)
+            .addScaledVector(sp.right, -halfWidth)
+            .addScaledVector(sp.up, pillarH * 0.5 + 0.05);
+        leftPillar.quaternion.copy(q);
+        leftPillar.castShadow = true;
+        this.group.add(leftPillar);
+
+        // Right pillar
+        const rightPillar = new THREE.Mesh(pillarGeo, pillarMat);
+        rightPillar.position.copy(sp.position)
+            .addScaledVector(sp.right, halfWidth)
+            .addScaledVector(sp.up, pillarH * 0.5 + 0.05);
+        rightPillar.quaternion.copy(q);
+        rightPillar.castShadow = true;
+        this.group.add(rightPillar);
+
+        // Crossbar
+        const barLength = halfWidth * 2 + pillarR * 2;
+        const barGeo = new THREE.BoxGeometry(barLength, barH, barH);
+        const bar = new THREE.Mesh(barGeo, barMat);
+        bar.position.copy(sp.position)
+            .addScaledVector(sp.up, pillarH + barH * 0.5 + 0.05);
+        bar.quaternion.copy(q);
+        bar.castShadow = true;
+        this.group.add(bar);
+
+        // Banner hanging below crossbar
+        const bannerW = barLength - pillarR * 2 - 0.4;
+        const bannerH = 2.2;
+        const bannerCanvas = document.createElement('canvas');
+        bannerCanvas.width = 512; bannerCanvas.height = 128;
+        const ctx = bannerCanvas.getContext('2d');
+        ctx.fillStyle = '#cc1111';
+        ctx.fillRect(0, 0, 512, 128);
+        // Checkered accent strips
+        const sz = 16;
+        for (let x = 0; x < 512; x += sz * 2) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(x, 0, sz, 20);
+            ctx.fillRect(x + sz, 108, sz, 20);
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 54px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('START / FINISH', 256, 68);
+        const bannerTex = new THREE.CanvasTexture(bannerCanvas);
+        const bannerGeo = new THREE.PlaneGeometry(bannerW, bannerH);
+        const bannerMat = new THREE.MeshStandardMaterial({
+            map: bannerTex,
+            emissive: new THREE.Color(0x330000),
+            emissiveMap: bannerTex,
+            side: THREE.DoubleSide,
+            roughness: 0.9,
+        });
+        const banner = new THREE.Mesh(bannerGeo, bannerMat);
+        banner.position.copy(sp.position)
+            .addScaledVector(sp.up, pillarH - bannerH * 0.5 + 0.05);
+        banner.quaternion.copy(q);
+        this.group.add(banner);
     }
 
     // ─── Jumbotron display ─────────────────────────────────────────────────────
