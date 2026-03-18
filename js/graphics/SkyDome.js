@@ -17,8 +17,40 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSunSize;
 uniform float uHazeExp;
+uniform vec3 uCloudColor;
+uniform float uCloudCoverage;
+uniform float uCloudDensity;
+uniform float uCloudScale;
 
 varying vec3 vDir;
+
+float hash(vec2 p) {
+    p = fract(p * vec2(234.34, 435.345));
+    p += dot(p, p + 34.23);
+    return fract(p.x * p.y);
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+        f.y
+    );
+}
+
+float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 6; i++) {
+        v += a * noise(p);
+        p *= 2.1;
+        a *= 0.5;
+    }
+    return v;
+}
 
 void main() {
     vec3 dir = normalize(vDir);
@@ -36,6 +68,14 @@ void main() {
     float outerGlow = pow(max(cosAngle, 0.0), 14.0) * 0.18;
     color += uSunColor * (disc + glow + outerGlow);
 
+    if (y > 0.01) {
+        vec2 cloudUV = dir.xz / (y + 0.08) * uCloudScale;
+        float cloud = fbm(cloudUV);
+        cloud = smoothstep(uCloudCoverage, uCloudCoverage + 0.28, cloud);
+        float fade = clamp(y * 4.0, 0.0, 1.0);
+        color = mix(color, uCloudColor, cloud * uCloudDensity * fade);
+    }
+
     if (y < 0.0) {
         float g = clamp(-y * 5.0, 0.0, 1.0);
         color = mix(color, uGround, g);
@@ -47,34 +87,46 @@ void main() {
 
 const PRESETS = {
     thunder: {
-        zenith:   new THREE.Color(0x0d5db5),
-        horizon:  new THREE.Color(0x82c8ef),
-        ground:   new THREE.Color(0x6da8b8),
-        sunDir:   new THREE.Vector3(0.5, 0.72, 0.4).normalize(),
-        sunColor: new THREE.Color(1.5, 1.4, 1.0),
-        sunSize:  1.0,
-        hazeExp:  0.5,
-        fogHex:   0x87ceeb,
+        zenith:        new THREE.Color(0x0d5db5),
+        horizon:       new THREE.Color(0x82c8ef),
+        ground:        new THREE.Color(0x6da8b8),
+        sunDir:        new THREE.Vector3(0.5, 0.72, 0.4).normalize(),
+        sunColor:      new THREE.Color(1.5, 1.4, 1.0),
+        sunSize:       1.0,
+        hazeExp:       0.5,
+        fogHex:        0x87ceeb,
+        cloudColor:    new THREE.Color(1.0, 1.0, 1.0),
+        cloudCoverage: 0.62,
+        cloudDensity:  0.65,
+        cloudScale:    3.2,
     },
     seaside: {
-        zenith:   new THREE.Color(0x0b57a8),
-        horizon:  new THREE.Color(0x78c2e8),
-        ground:   new THREE.Color(0x60acc8),
-        sunDir:   new THREE.Vector3(0.3, 0.65, 0.6).normalize(),
-        sunColor: new THREE.Color(1.6, 1.45, 1.0),
-        sunSize:  0.9,
-        hazeExp:  0.45,
-        fogHex:   0x8dc8e8,
+        zenith:        new THREE.Color(0x0b57a8),
+        horizon:       new THREE.Color(0x78c2e8),
+        ground:        new THREE.Color(0x60acc8),
+        sunDir:        new THREE.Vector3(0.3, 0.65, 0.6).normalize(),
+        sunColor:      new THREE.Color(1.6, 1.45, 1.0),
+        sunSize:       0.9,
+        hazeExp:       0.45,
+        fogHex:        0x8dc8e8,
+        cloudColor:    new THREE.Color(1.0, 1.0, 1.0),
+        cloudCoverage: 0.58,
+        cloudDensity:  0.72,
+        cloudScale:    3.8,
     },
     mountain: {
-        zenith:   new THREE.Color(0x3a5568),
-        horizon:  new THREE.Color(0xa4b8c4),
-        ground:   new THREE.Color(0xb4c6ce),
-        sunDir:   new THREE.Vector3(0.2, 0.5, 0.7).normalize(),
-        sunColor: new THREE.Color(0.9, 0.9, 0.96),
-        sunSize:  0.65,
-        hazeExp:  0.72,
-        fogHex:   0xb6c2cc,
+        zenith:        new THREE.Color(0x3a5568),
+        horizon:       new THREE.Color(0xa4b8c4),
+        ground:        new THREE.Color(0xb4c6ce),
+        sunDir:        new THREE.Vector3(0.2, 0.5, 0.7).normalize(),
+        sunColor:      new THREE.Color(0.9, 0.9, 0.96),
+        sunSize:       0.65,
+        hazeExp:       0.72,
+        fogHex:        0xb6c2cc,
+        cloudColor:    new THREE.Color(0.82, 0.86, 0.90),
+        cloudCoverage: 0.38,
+        cloudDensity:  0.85,
+        cloudScale:    4.2,
     },
 };
 
@@ -85,13 +137,17 @@ export class SkyDome {
             vertexShader: VERT,
             fragmentShader: FRAG,
             uniforms: {
-                uZenith:   { value: new THREE.Color() },
-                uHorizon:  { value: new THREE.Color() },
-                uGround:   { value: new THREE.Color() },
-                uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
-                uSunColor: { value: new THREE.Color() },
-                uSunSize:  { value: 1.0 },
-                uHazeExp:  { value: 0.5 },
+                uZenith:        { value: new THREE.Color() },
+                uHorizon:       { value: new THREE.Color() },
+                uGround:        { value: new THREE.Color() },
+                uSunDir:        { value: new THREE.Vector3(0, 1, 0) },
+                uSunColor:      { value: new THREE.Color() },
+                uSunSize:       { value: 1.0 },
+                uHazeExp:       { value: 0.5 },
+                uCloudColor:    { value: new THREE.Color() },
+                uCloudCoverage: { value: 0.62 },
+                uCloudDensity:  { value: 0.65 },
+                uCloudScale:    { value: 3.2 },
             },
             side: THREE.BackSide,
             depthWrite: false,
@@ -113,6 +169,10 @@ export class SkyDome {
         u.uSunColor.value.copy(p.sunColor);
         u.uSunSize.value = p.sunSize;
         u.uHazeExp.value = p.hazeExp;
+        u.uCloudColor.value.copy(p.cloudColor);
+        u.uCloudCoverage.value = p.cloudCoverage;
+        u.uCloudDensity.value = p.cloudDensity;
+        u.uCloudScale.value = p.cloudScale;
         this.fogHex = p.fogHex;
     }
 

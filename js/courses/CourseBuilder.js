@@ -19,6 +19,9 @@ export class CourseBuilder {
             tunnelLighting: 1,
             mistDensity: 0,
         };
+        this._jumbotronCanvas = null;
+        this._jumbotronCtx = null;
+        this._jumbotronTexture = null;
     }
 
     build(courseData) {
@@ -310,6 +313,97 @@ export class CourseBuilder {
         this.group.add(mesh);
     }
 
+    // ─── Jumbotron display ─────────────────────────────────────────────────────
+
+    _drawJumbotronIdle() {
+        const ctx = this._jumbotronCtx;
+        const w = 512, h = 224;
+        ctx.fillStyle = '#080c1a';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = 'rgba(255,204,0,0.3)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(4, 4, w - 8, h - 8);
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 26px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('THUNDER OVAL SPEEDWAY', w / 2, 40);
+        ctx.strokeStyle = '#1e2d44';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(20, 54);
+        ctx.lineTo(w - 20, 54);
+        ctx.stroke();
+        ctx.fillStyle = '#1e2d44';
+        ctx.font = 'bold 80px monospace';
+        ctx.fillText('P--', w / 2, 152);
+        this._jumbotronTexture.needsUpdate = true;
+    }
+
+    updateJumbotron({ position, currentLap, totalLaps, state, timeStr, message }) {
+        if (!this._jumbotronCtx) return;
+        const ctx = this._jumbotronCtx;
+        const w = 512, h = 224;
+
+        ctx.fillStyle = '#080c1a';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = 'rgba(255,204,0,0.3)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(4, 4, w - 8, h - 8);
+
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 26px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('THUNDER OVAL SPEEDWAY', w / 2, 40);
+        ctx.strokeStyle = '#1e2d44';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(20, 54);
+        ctx.lineTo(w - 20, 54);
+        ctx.stroke();
+
+        if (state === 'grid_intro' || state === 'countdown') {
+            ctx.fillStyle = '#88d6ff';
+            ctx.font = 'bold 64px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('READY', w / 2, 152);
+        } else if (state === 'racing' || state === 'finish_celebration') {
+            const posColor = position === 1 ? '#ffcc00' : position <= 3 ? '#88ddff' : '#ffffff';
+            ctx.fillStyle = posColor;
+            ctx.font = 'bold 80px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`P${position}`, w / 2, 152);
+            ctx.fillStyle = '#7799bb';
+            ctx.font = '22px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(`LAP ${currentLap}/${totalLaps}`, 24, 200);
+            ctx.textAlign = 'right';
+            ctx.fillText(timeStr, w - 24, 200);
+        } else if (state === 'finished' || state === 'gameover') {
+            const posColor = position === 1 ? '#ffcc00' : '#ffffff';
+            ctx.fillStyle = posColor;
+            ctx.font = 'bold 60px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`P${position} FINISH`, w / 2, 138);
+            ctx.fillStyle = '#7799bb';
+            ctx.font = '24px monospace';
+            ctx.fillText(timeStr, w / 2, 185);
+        } else {
+            ctx.fillStyle = '#1e2d44';
+            ctx.font = 'bold 80px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('P--', w / 2, 152);
+        }
+
+        if (message) {
+            ctx.fillStyle = '#ff7744';
+            ctx.font = 'bold 20px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(message, w / 2, 216);
+        }
+
+        this._jumbotronTexture.needsUpdate = true;
+    }
+
     // ─── Checkpoint markers ────────────────────────────────────────────────────
 
     _buildCheckpointMarkers(courseData) {
@@ -430,17 +524,112 @@ export class CourseBuilder {
         this.group.add(new THREE.Mesh(wallGeo, wallMat));
 
         // Jumbotron screen above stands
+        this._jumbotronCanvas = document.createElement('canvas');
+        this._jumbotronCanvas.width = 512;
+        this._jumbotronCanvas.height = 224;
+        this._jumbotronCtx = this._jumbotronCanvas.getContext('2d');
+        this._jumbotronTexture = new THREE.CanvasTexture(this._jumbotronCanvas);
+        this._drawJumbotronIdle();
+
         const screenMat = new THREE.MeshStandardMaterial({
-            color: 0x243849,
-            emissive: 0x0c1f2b,
-            emissiveIntensity: 0.35,
+            map: this._jumbotronTexture,
+            emissiveMap: this._jumbotronTexture,
+            emissive: new THREE.Color(1, 1, 1),
+            emissiveIntensity: 0.85,
             roughness: 0.45,
-            metalness: 0.35,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
         });
+        const screenY = wallTopHeight + 9;
         const screen = new THREE.Mesh(new THREE.BoxGeometry(32, 14, 2), screenMat);
-        screen.position.set(cx, wallTopHeight + 9, cz);
+        screen.position.set(cx, screenY, cz);
         screen.castShadow = true;
         this.group.add(screen);
+
+        // Metal frame around screen
+        const frameMat = new THREE.MeshStandardMaterial({ color: 0x445566, roughness: 0.4, metalness: 0.8 });
+        const ft = 0.7;
+        const frameparts = [
+            { geo: new THREE.BoxGeometry(33.4, ft, 2.4), dx: 0, dy: 7.35 },
+            { geo: new THREE.BoxGeometry(33.4, ft, 2.4), dx: 0, dy: -7.35 },
+            { geo: new THREE.BoxGeometry(ft, 14, 2.4), dx: -16.35, dy: 0 },
+            { geo: new THREE.BoxGeometry(ft, 14, 2.4), dx: 16.35, dy: 0 },
+        ];
+        for (const { geo, dx, dy } of frameparts) {
+            const bar = new THREE.Mesh(geo, frameMat);
+            bar.position.set(cx + dx, screenY + dy, cz);
+            this.group.add(bar);
+        }
+
+        // Support pillars
+        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.5, metalness: 0.7 });
+        const pillarH = screenY - 7;
+        const pillarGeo = new THREE.BoxGeometry(1.2, pillarH, 1.2);
+        for (const dx of [-14, 14]) {
+            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+            pillar.position.set(cx + dx, pillarH / 2, cz);
+            this.group.add(pillar);
+        }
+
+        this._buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight);
+    }
+
+    _buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight) {
+        const numRows = 8;
+        const spacing = 2.0;
+        const bodyW = 0.85;
+        const bodyH = 1.5;
+        const bodyD = 0.45;
+
+        const slopeAngle = Math.atan2(standHeight, standOuterR - standInnerR);
+
+        let total = 0;
+        const rowData = [];
+        for (let row = 0; row < numRows; row++) {
+            const f = (row + 0.5) / numRows;
+            const r = standInnerR + f * (standOuterR - standInnerR);
+            const count = Math.floor((2 * Math.PI * r) / spacing);
+            rowData.push({ f, r, count });
+            total += count;
+        }
+
+        const colors = [0xcc2222, 0x2244cc, 0xddcc00, 0x22aa44, 0xffffff, 0xee6600, 0x9933cc, 0x44aacc, 0xee3388, 0x33ccaa];
+        const geo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
+        const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+        const mesh = new THREE.InstancedMesh(geo, mat, total);
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+
+        const dummy = new THREE.Object3D();
+        const color = new THREE.Color();
+        let idx = 0;
+        let seed = 12345;
+        const rand = () => {
+            seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+            return (seed >>> 0) / 0xffffffff;
+        };
+
+        for (const { f, r, count } of rowData) {
+            const baseY = f * standHeight + bodyH * 0.5 * Math.cos(slopeAngle) + 0.1;
+            for (let j = 0; j < count; j++) {
+                const ang = (j / count) * Math.PI * 2;
+                dummy.position.set(
+                    cx + Math.cos(ang) * r,
+                    baseY,
+                    cz + Math.sin(ang) * r
+                );
+                dummy.rotation.set(0, ang + Math.PI, 0);
+                dummy.updateMatrix();
+                mesh.setMatrixAt(idx, dummy.matrix);
+                color.setHex(colors[Math.floor(rand() * colors.length)]);
+                mesh.setColorAt(idx, color);
+                idx++;
+            }
+        }
+
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        this.group.add(mesh);
     }
 
     _buildSeasideScenery() {

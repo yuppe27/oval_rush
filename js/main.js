@@ -154,6 +154,7 @@ class Game {
 
             this.cameraController.update(rawDt, this.player, this.raceManager);
             this._updateCourseEnvironment(rawDt);
+            this._updateJumbotron();
             this.hud.update(this.player, this.raceManager, rawDt);
             this.boostFX.update(rawDt, this.player);
             this.audio.update(rawDt, this.player, this.raceManager);
@@ -462,6 +463,18 @@ class Game {
         }
         this.renderer.scene.fog.near = 200;
         this.renderer.scene.fog.far = 800;
+    }
+
+    _updateJumbotron() {
+        const rm = this.raceManager;
+        this.courseBuilder.updateJumbotron({
+            position: rm.playerPosition,
+            currentLap: rm.currentLap,
+            totalLaps: rm.totalLaps,
+            state: rm.state,
+            timeStr: rm.timer.getTotalTimeFormatted(),
+            message: rm.message?.text || '',
+        });
     }
 
     _updateCourseEnvironment(dt) {
