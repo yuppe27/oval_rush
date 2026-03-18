@@ -75,6 +75,17 @@ const DEFAULT_TUNING = {
         aiPlayerSpeedLoss: 0.982,
         playerSpeedLoss: 0.976,
         overlapSpeedCut: 0.97,
+        sideBySideProgressT: 0.0035,
+        sideBySideLongitudinalDist: 1.35,
+        sideBySideAvoidBoost: 1.15,
+        sideBySidePushScale: 0.82,
+        sideBySideLaneOffsetScale: 0.42,
+        sideBySideLaneTargetScale: 1.2,
+        sideSwipeLongitudinalDist: 1.45,
+        sideSwipeAiLanePushScale: 0.72,
+        sideSwipePosPushScale: 0.46,
+        sideSwipeAiSpeedLoss: 0.995,
+        sideSwipePlayerSpeedLoss: 0.997,
     },
     difficulty: {
         EASY: {
@@ -1068,9 +1079,9 @@ export class AIController {
                     const laneProximity = 1 - (closeLane / tc.avoidCloseLane);
                     const side = this._getAvoidanceSide(a, b);
                     // 横並び（closeT が非常に小さい）のとき横押しを強化
-                    const isSideBySide = closeT < 0.003;
+                    const isSideBySide = closeT < (this.tuning.collision.sideBySideProgressT ?? 0.0035);
                     if (isSideBySide) hasSideBySide = true;
-                    const sideBySideBoost = isSideBySide ? 2.0 : 1.0;
+                    const sideBySideBoost = isSideBySide ? (this.tuning.collision.sideBySideAvoidBoost ?? 1.15) : 1.0;
                     const nudgeStrength = tc.avoidNudge
                         * (0.5 + 0.5 * proximity)
                         * laneProximity
@@ -1351,21 +1362,39 @@ export class AIController {
                 const d = Math.sqrt(d2);
                 const overlap = minDist - d;
                 const nx = dx / d;
+                const nz = dz / d;
                 const aheadAB = wrap01(b.progressT - a.progressT);
                 const aheadBA = wrap01(a.progressT - b.progressT);
+                const relative = new THREE.Vector3(dx, 0, dz);
+                const avgForward = aPose.frame.forward.clone().add(bPose.frame.forward).setY(0);
+                if (avgForward.lengthSq() < 1e-6) {
+                    avgForward.set(-nz, 0, nx);
+                } else {
+                    avgForward.normalize();
+                }
+                const avgRight = aPose.frame.right.clone().add(bPose.frame.right).setY(0);
+                if (avgRight.lengthSq() < 1e-6) {
+                    avgRight.set(nx, 0, nz);
+                } else {
+                    avgRight.normalize();
+                }
 
                 // 横並び判定: トラック進行方向の差が車体1台分以内なら横並びとみなす
                 const sideDelta = Math.min(aheadAB, aheadBA);
-                const isSideBySide = sideDelta < 0.003;
+                const longitudinalGap = Math.abs(relative.dot(avgForward));
+                const isSideBySide = sideDelta < (tc.sideBySideProgressT ?? 0.0035)
+                    || longitudinalGap < (tc.sideBySideLongitudinalDist ?? 1.35);
 
-                // 横並びのときは横方向への分離を強化する
-                const pushMult = isSideBySide ? 2.0 : 1.0;
-                const aLanePush = -Math.sign(nx || 1) * overlap * tc.aiAiPush * pushMult;
-                const bLanePush = Math.sign(nx || 1) * overlap * tc.aiAiPush * pushMult;
-                a.laneOffset += aLanePush;
-                b.laneOffset += bLanePush;
-                a.laneTarget += aLanePush * tc.aiAiTargetScale;
-                b.laneTarget += bLanePush * tc.aiAiTargetScale;
+                const lateralSign = Math.sign(relative.dot(avgRight)) || Math.sign(nx || 1) || 1;
+                const lanePush = overlap * tc.aiAiPush * (isSideBySide ? (tc.sideBySidePushScale ?? 0.82) : 1.0);
+                const laneOffsetScale = isSideBySide ? (tc.sideBySideLaneOffsetScale ?? 0.42) : 1.0;
+                const laneTargetScale = tc.aiAiTargetScale * (isSideBySide ? (tc.sideBySideLaneTargetScale ?? 1.2) : 1.0);
+                const aLanePush = -lateralSign * lanePush;
+                const bLanePush = lateralSign * lanePush;
+                a.laneOffset += aLanePush * laneOffsetScale;
+                b.laneOffset += bLanePush * laneOffsetScale;
+                a.laneTarget += aLanePush * laneTargetScale;
+                b.laneTarget += bLanePush * laneTargetScale;
 
                 const aSp = this.courseBuilder.sampledPoints[Math.floor(a.progressT * N) % N];
                 const bSp = this.courseBuilder.sampledPoints[Math.floor(b.progressT * N) % N];
@@ -1409,8 +1438,20 @@ export class AIController {
                 const overlap = minPlayerDist - d;
                 const nx = dx / d;
                 const nz = dz / d;
+                const relative = new THREE.Vector3(dx, 0, dz);
+                const playerRight = (player.surfaceRight?.clone?.() || new THREE.Vector3(1, 0, 0))
+                    .projectOnPlane(player.surfaceUp || new THREE.Vector3(0, 1, 0));
+                if (playerRight.lengthSq() < 1e-6) {
+                    playerRight.set(Math.cos(player.rotation), 0, -Math.sin(player.rotation));
+                } else {
+                    playerRight.normalize();
+                }
+                const playerLongitudinalGap = Math.abs(relative.dot(playerForward));
+                const lateralSign = Math.sign(relative.dot(playerRight)) || Math.sign(nx || 1) || 1;
 
-                const aiLanePush = Math.sign(nx || 1) * overlap * tc.aiPlayerPush;
+                const isSideSwipe = playerLongitudinalGap < (tc.sideSwipeLongitudinalDist ?? 1.45);
+                const aiLanePush = lateralSign * overlap * tc.aiPlayerPush
+                    * (isSideSwipe ? (tc.sideSwipeAiLanePushScale ?? 0.72) : 1.0);
                 ai.laneOffset += aiLanePush;
                 ai.laneTarget += aiLanePush * tc.aiPlayerTargetScale;
                 const aiSp = this.courseBuilder.sampledPoints[Math.floor(ai.progressT * N) % N];
@@ -1462,6 +1503,15 @@ export class AIController {
                     } else {
                         ai.speed *= 0.94;
                     }
+                } else if (isSideSwipe) {
+                    const lateralPush = overlap * tc.aiPlayerPosPush * (tc.sideSwipePosPushScale ?? 0.46);
+                    player.position.addScaledVector(playerRight, -lateralSign * lateralPush);
+                    const forwardCarry = THREE.MathUtils.clamp((ai.speed - player.speed) * 0.01, -0.015, 0.03);
+                    if (forwardCarry > 0) {
+                        player.position.addScaledVector(playerForward, forwardCarry);
+                    }
+                    ai.speed *= tc.sideSwipeAiSpeedLoss ?? 0.995;
+                    player.speed *= tc.sideSwipePlayerSpeedLoss ?? 0.997;
                 } else {
                     player.position.x -= nx * overlap * tc.aiPlayerPosPush;
                     player.position.z -= nz * overlap * tc.aiPlayerPosPush;
