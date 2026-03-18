@@ -22,6 +22,7 @@ export class CourseBuilder {
         this._jumbotronCanvas = null;
         this._jumbotronCtx = null;
         this._jumbotronTexture = null;
+        this._curveSignTextureCache = new Map();
     }
 
     build(courseData) {
@@ -533,10 +534,12 @@ export class CourseBuilder {
         const scenery = courseData.scenery || 'stadium';
         if (scenery === 'seaside') {
             this._buildSeasideScenery();
+            this._buildCurveWarningSigns();
             return;
         }
         if (scenery === 'mountain') {
             this._buildMountainScenery();
+            this._buildCurveWarningSigns();
             return;
         }
         this._buildStadiumScenery();
@@ -1097,6 +1100,305 @@ export class CourseBuilder {
         this._buildMountainWaterfall();
         this._buildMountainCloudSea();
         this._buildMountainJumpRamps();
+    }
+
+    _buildCurveWarningSigns() {
+        const profile = {
+            seaside: {
+                threshold: 0.9,
+                leadMeters: 48,
+                signSpacingMeters: 22,
+                minSpacingMeters: 180,
+                lateralOffset: 5.8,
+                boardWidth: 9.5,
+                boardHeight: 3.9,
+                postHeight: 3.5,
+                minSigns: 2,
+                maxSigns: 3,
+                severityRef: 1.14,
+                skipPeakZoneKeys: ['tunnel'],
+                avoidSignZoneKeys: ['tunnel'],
+            },
+            mountain: {
+                threshold: 0.95,
+                leadMeters: 44,
+                signSpacingMeters: 18,
+                minSpacingMeters: 165,
+                lateralOffset: 4.9,
+                boardWidth: 8.8,
+                boardHeight: 3.6,
+                postHeight: 3.35,
+                minSigns: 2,
+                maxSigns: 4,
+                severityRef: 1.18,
+                skipPeakZoneKeys: ['tunnel'],
+                avoidSignZoneKeys: ['tunnel', 'mist'],
+            },
+        }[this.courseData?.id];
+
+        if (!profile || this.sampledPoints.length < 8) return;
+
+        const candidates = this._findCurveWarningCandidates(profile);
+        for (const candidate of candidates) {
+            const turnSign = Math.sign(candidate.signedCurve) || 1;
+            const side = turnSign;
+            for (const signIndex of candidate.signIndices) {
+                const sp = this.sampledPoints[signIndex];
+                if (!sp) continue;
+                this._createCurveWarningSign(sp, turnSign, side, profile);
+            }
+        }
+    }
+
+    _findCurveWarningCandidates(profile) {
+        const N = this.sampledPoints.length;
+        const metersPerSample = this.courseLength / Math.max(1, N);
+        const leadSamples = Math.max(10, Math.round(profile.leadMeters / Math.max(1e-3, metersPerSample)));
+        const signSpacingSamples = Math.max(7, Math.round(profile.signSpacingMeters / Math.max(1e-3, metersPerSample)));
+        const minSpacingSamples = Math.max(20, Math.round(profile.minSpacingMeters / Math.max(1e-3, metersPerSample)));
+        const lookAheadOffsets = [4, 8, 14, 20];
+        const peakWindow = 4;
+        const skipPeakZones = this._collectCourseZones(profile.skipPeakZoneKeys);
+        const avoidSignZones = this._collectCourseZones(profile.avoidSignZoneKeys);
+        const curves = new Array(N).fill(0);
+        const signedCurves = new Array(N).fill(0);
+        const cross = new THREE.Vector3();
+
+        for (let i = 0; i < N; i++) {
+            const a = this.sampledPoints[i].forward;
+            let curvePeak = 0;
+            let weighted = 0;
+            let signedWeighted = 0;
+            let weightSum = 0;
+
+            for (let k = 0; k < lookAheadOffsets.length; k++) {
+                const off = lookAheadOffsets[k];
+                const b = this.sampledPoints[(i + off) % N].forward;
+                const c = a.angleTo(b);
+                const w = 1 + k * 0.28;
+                curvePeak = Math.max(curvePeak, c);
+                weighted += c * w;
+                weightSum += w;
+                cross.crossVectors(a, b);
+                signedWeighted += Math.sign(cross.y || 0) * c * w;
+            }
+
+            const curveAvg = weightSum > 0 ? weighted / weightSum : 0;
+            curves[i] = curvePeak * 0.62 + curveAvg * 0.38;
+            signedCurves[i] = weightSum > 0 ? signedWeighted / weightSum : 0;
+        }
+
+        const peaks = [];
+        for (let i = 0; i < N; i++) {
+            if (curves[i] < profile.threshold) continue;
+            if (this._isSampleIndexInZones(i, skipPeakZones)) continue;
+
+            let isPeak = true;
+            for (let j = 1; j <= peakWindow; j++) {
+                if (curves[(i - j + N) % N] > curves[i] || curves[(i + j) % N] > curves[i]) {
+                    isPeak = false;
+                    break;
+                }
+            }
+            if (!isPeak) continue;
+
+            const signIndex = (i - leadSamples + N) % N;
+            const severityN = THREE.MathUtils.clamp(
+                (curves[i] - profile.threshold) / Math.max(1e-3, profile.severityRef - profile.threshold),
+                0,
+                1
+            );
+            const signCount = Math.max(
+                profile.minSigns,
+                Math.min(
+                    profile.maxSigns,
+                    Math.round(THREE.MathUtils.lerp(profile.minSigns, profile.maxSigns, severityN))
+                )
+            );
+            const signIndices = [];
+            for (let s = signCount - 1; s >= 0; s--) {
+                signIndices.push((signIndex - s * signSpacingSamples + N) % N);
+            }
+            this._shiftIndicesOutOfZones(signIndices, avoidSignZones);
+            peaks.push({
+                index: i,
+                signIndex,
+                signIndices,
+                signCount,
+                severityN,
+                curvature: curves[i],
+                signedCurve: signedCurves[i],
+            });
+        }
+
+        peaks.sort((a, b) => b.curvature - a.curvature);
+
+        const selected = [];
+        for (const peak of peaks) {
+            const tooClose = selected.some(item =>
+                this._getWrappedSampleDistance(item.index, peak.index) < minSpacingSamples
+                || peak.signIndices.some(signIdx =>
+                    item.signIndices.some(otherSignIdx =>
+                        this._getWrappedSampleDistance(otherSignIdx, signIdx) < Math.round(signSpacingSamples * 1.15)
+                    )
+                )
+            );
+            if (!tooClose) selected.push(peak);
+        }
+
+        return selected.sort((a, b) => a.signIndex - b.signIndex);
+    }
+
+    _getWrappedSampleDistance(a, b) {
+        const N = this.sampledPoints.length;
+        const diff = Math.abs(a - b);
+        return Math.min(diff, N - diff);
+    }
+
+    _collectCourseZones(zoneKeys = []) {
+        const out = [];
+        for (const key of zoneKeys || []) {
+            const zones = this.courseData?.zones?.[key] || [];
+            for (const zone of zones) {
+                out.push(zone);
+            }
+        }
+        return out;
+    }
+
+    _isSampleIndexInZones(index, zones = []) {
+        const sp = this.sampledPoints[index];
+        if (!sp) return false;
+        return this._isTInAnyZone(sp.t, zones);
+    }
+
+    _isTInAnyZone(t, zones = []) {
+        for (const zone of zones || []) {
+            if (this._isTInZone(t, zone.start, zone.end)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _shiftIndicesOutOfZones(indices, zones = []) {
+        if (!indices?.length || !zones?.length || !this.sampledPoints.length) return indices;
+
+        const N = this.sampledPoints.length;
+        let guard = 0;
+        while (indices.some(index => this._isSampleIndexInZones(index, zones)) && guard < N) {
+            for (let i = 0; i < indices.length; i++) {
+                indices[i] = (indices[i] - 1 + N) % N;
+            }
+            guard++;
+        }
+        return indices;
+    }
+
+    _createCurveWarningSign(sp, turnSign, side, profile) {
+        const signGroup = new THREE.Group();
+        const boardTexture = this._getCurveWarningSignTexture(turnSign);
+        const postMat = new THREE.MeshStandardMaterial({
+            color: 0x62686e,
+            roughness: 0.54,
+            metalness: 0.55,
+        });
+        const backMat = new THREE.MeshStandardMaterial({
+            color: 0xcfd4d6,
+            roughness: 0.72,
+            metalness: 0.08,
+        });
+        const boardMat = new THREE.MeshStandardMaterial({
+            map: boardTexture,
+            roughness: 0.66,
+            metalness: 0.02,
+            transparent: true,
+        });
+
+        const post = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.12, 0.14, profile.postHeight, 10),
+            postMat
+        );
+        post.position.y = profile.postHeight * 0.5;
+        post.castShadow = true;
+        signGroup.add(post);
+
+        const backPlate = new THREE.Mesh(
+            new THREE.BoxGeometry(profile.boardWidth + 0.45, profile.boardHeight + 0.4, 0.18),
+            backMat
+        );
+        backPlate.position.set(0, profile.postHeight + 0.4, -0.06);
+        backPlate.castShadow = true;
+        signGroup.add(backPlate);
+
+        const board = new THREE.Mesh(
+            new THREE.PlaneGeometry(profile.boardWidth, profile.boardHeight),
+            boardMat
+        );
+        board.position.set(0, profile.postHeight + 0.4, 0.04);
+        board.castShadow = true;
+        signGroup.add(board);
+
+        const targetPos = sp.position.clone()
+            .addScaledVector(sp.right, side * (sp.width * 0.5 + profile.lateralOffset));
+        targetPos.y += 0.1;
+        signGroup.position.copy(targetPos);
+
+        const worldUp = new THREE.Vector3(0, 1, 0);
+        const facing = sp.forward.clone()
+            .multiplyScalar(-1)
+            .addScaledVector(sp.right, -side * 0.22)
+            .normalize();
+        const xAxis = new THREE.Vector3().crossVectors(worldUp, facing).normalize();
+        const yAxis = new THREE.Vector3().crossVectors(facing, xAxis).normalize();
+        signGroup.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, facing));
+
+        signGroup.traverse((obj) => {
+            if (!obj.isMesh) return;
+            obj.receiveShadow = true;
+        });
+
+        this.group.add(signGroup);
+    }
+
+    _getCurveWarningSignTexture(turnSign) {
+        const key = turnSign >= 0 ? 'left' : 'right';
+        if (this._curveSignTextureCache.has(key)) {
+            return this._curveSignTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 224;
+        const ctx = canvas.getContext('2d');
+        const dir = turnSign >= 0 ? -1 : 1;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f3d24f';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#181818';
+        ctx.lineWidth = 18;
+        ctx.strokeRect(9, 9, canvas.width - 18, canvas.height - 18);
+
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#181818';
+        ctx.lineWidth = 26;
+
+        const centers = [156, 256, 356];
+        for (const cx of centers) {
+            ctx.beginPath();
+            ctx.moveTo(cx + dir * 42, 52);
+            ctx.lineTo(cx - dir * 12, 112);
+            ctx.lineTo(cx + dir * 42, 172);
+            ctx.stroke();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        this._curveSignTextureCache.set(key, texture);
+        return texture;
     }
 
     _buildMountainPeaks() {
