@@ -585,9 +585,11 @@ export class PlayerVehicle {
                     curveN
                 )
                 : 1;
+            const steerMagContrib = counterSteering
+                ? 0
+                : Math.abs(this.steering) / this.maxSteering * DRIFT_TUNING.angleSteerScale;
             const targetDriftAngle = driftControlBasis * (
-                DRIFT_TUNING.angleBase
-                + Math.abs(this.steering) / this.maxSteering * DRIFT_TUNING.angleSteerScale
+                DRIFT_TUNING.angleBase + steerMagContrib
             ) * this.driftBias * counterSteerAngleScale;
             this.driftAngle = THREE.MathUtils.lerp(
                 this.driftAngle,
