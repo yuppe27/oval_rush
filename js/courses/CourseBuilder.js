@@ -324,11 +324,13 @@ export class CourseBuilder {
         const margin = 0.6;
         const halfWidth = sp.width * 0.5 + margin;
 
-        // Road frame: local X = sp.right, local Y = sp.up, local Z = sp.forward
+        // Road frame (right-handed): local X = sp.right, local Y = sp.up, local Z = -sp.forward
+        // -sp.forward にすることで行列式=+1 の正則な回転行列となり、
+        // バナー法線が接近方向（-sp.forward）を向く
         const basis = new THREE.Matrix4().makeBasis(
             sp.right.clone().normalize(),
             sp.up.clone().normalize(),
-            sp.forward.clone().normalize()
+            sp.forward.clone().normalize().negate()
         );
         const q = new THREE.Quaternion().setFromRotationMatrix(basis);
 

@@ -83,10 +83,16 @@ const SEASIDE_GRAND_BASE = {
         { x: -210, y: 8,  z: -20,  width: 16, bankAngle: -4 },  // gentle climb
         { x: -230, y: 22, z: 90,   width: 16, bankAngle: -6 },  // hillside climb
         { x: -160, y: 28, z: 170,  width: 16, bankAngle: -8 },  // first hilltop
+        { x: -148, y: 28, z: 182,  width: 15, bankAngle:  4 },  // hairpin entry
+        { x: -136, y: 28, z: 194,  width: 14, bankAngle:  9 },  // hairpin apex (drift corner 1)
+        { x: -124, y: 27, z: 182,  width: 15, bankAngle:  4 },  // hairpin exit
         { x: -50,  y: 14, z: 180,  width: 16, bankAngle: -5 },  // descent
         { x: 60,   y: 3,  z: 150,  width: 16, bankAngle: -3 },  // valley near coast
         { x: 170,  y: 16, z: 160,  width: 16, bankAngle: -5 },  // second hill climb
         { x: 250,  y: 22, z: 95,   width: 16, bankAngle: -6 },  // second hilltop
+        { x: 248,  y: 18, z: 62,   width: 15, bankAngle:  4 },  // hairpin entry
+        { x: 260,  y: 18, z: 50,   width: 14, bankAngle:  9 },  // hairpin apex (drift corner 2)
+        { x: 248,  y: 16, z: 38,   width: 15, bankAngle:  4 },  // hairpin exit
         { x: 240,  y: 10, z: -10,  width: 16, bankAngle: -4 },  // descent
         { x: 170,  y: 2,  z: -90,  width: 16, bankAngle: -2 },  // back near coast
         { x: 60,   y: 0,  z: -120, width: 16, bankAngle: -2 },  // coastal flat
@@ -117,10 +123,19 @@ const MOUNTAIN_APEX_BASE = {
     controlPoints: [
         { x: -110, y: 20,  z: -200, width: 13, bankAngle: -2 },  // base camp
         { x: -220, y: 42,  z: -110, width: 13, bankAngle: -5 },  // first climb
+        { x: -233, y: 46,  z: -56,  width: 12, bankAngle:  4 },  // hairpin entry
+        { x: -245, y: 49,  z: -44,  width: 11, bankAngle:  9 },  // hairpin apex (drift corner 1)
+        { x: -233, y: 47,  z: -32,  width: 12, bankAngle:  4 },  // hairpin exit
         { x: -250, y: 55,  z: 20,   width: 13, bankAngle: -8 },  // first ridge
         { x: -190, y: 38,  z: 130,  width: 13, bankAngle: -10 }, // valley dip
+        { x: -157, y: 48,  z: 157,  width: 12, bankAngle:  4 },  // hairpin entry
+        { x: -145, y: 50,  z: 169,  width: 11, bankAngle:  9 },  // hairpin apex (drift corner 2)
+        { x: -157, y: 49,  z: 181,  width: 12, bankAngle:  4 },  // hairpin exit
         { x: -80,  y: 78,  z: 220,  width: 13, bankAngle: -7 },  // steep climb
         { x: 55,   y: 112, z: 240,  width: 13, bankAngle: -5 },  // summit peak
+        { x: 93,   y: 100, z: 222,  width: 12, bankAngle:  4 },  // hairpin entry
+        { x: 105,  y: 99,  z: 210,  width: 11, bankAngle:  9 },  // hairpin apex (drift corner 3)
+        { x: 117,  y: 98,  z: 222,  width: 12, bankAngle:  4 },  // hairpin exit
         { x: 170,  y: 82,  z: 180,  width: 13, bankAngle: -4 },  // descent from summit
         { x: 240,  y: 55,  z: 70,   width: 13, bankAngle: -6 },  // saddle
         { x: 275,  y: 57,  z: 50,   width: 13, bankAngle: -3 },  // hairpin approach
@@ -128,6 +143,9 @@ const MOUNTAIN_APEX_BASE = {
         { x: 325,  y: 63,  z: 5,    width: 12, bankAngle: 8 },   // hairpin apex
         { x: 300,  y: 66,  z: -15,  width: 12, bankAngle: 5 },   // hairpin exit
         { x: 260,  y: 72,  z: -40,  width: 13, bankAngle: -7 },  // secondary ridge
+        { x: 249,  y: 65,  z: -72,  width: 12, bankAngle:  4 },  // hairpin entry
+        { x: 261,  y: 63,  z: -84,  width: 11, bankAngle:  9 },  // hairpin apex (drift corner 4)
+        { x: 249,  y: 61,  z: -96,  width: 12, bankAngle:  4 },  // hairpin exit
         { x: 220,  y: 42,  z: -140, width: 13, bankAngle: -5 },  // descent
         { x: 110,  y: 25,  z: -220, width: 13, bankAngle: -4 },  // near base
         { x: -20,  y: 18,  z: -240, width: 13, bankAngle: -3 },  // approach to start

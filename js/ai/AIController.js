@@ -782,7 +782,7 @@ export class AIController {
         }
 
         this._applyLaneAvoidance();
-        this._applyTrafficSpacing();
+        this._applyTrafficSpacing(dt);
         this._resolveAICollisions(player, dt);
         this._updateTransforms(raceState);
     }
@@ -1051,6 +1051,8 @@ export class AIController {
             let desired = THREE.MathUtils.lerp(a.laneTarget, baseTarget, returnBlend);
             let bestAhead = null;
             let bestAheadDelta = Infinity;
+            let bestAheadRelSpeed = 0;
+            let hasSideBySide = false;
 
             for (let j = 0; j < this.vehicles.length; j++) {
                 if (i === j) continue;
@@ -1065,11 +1067,16 @@ export class AIController {
                     const proximity = 1 - (closeT / tc.avoidCloseT);
                     const laneProximity = 1 - (closeLane / tc.avoidCloseLane);
                     const side = this._getAvoidanceSide(a, b);
+                    // 横並び（closeT が非常に小さい）のとき横押しを強化
+                    const isSideBySide = closeT < 0.003;
+                    if (isSideBySide) hasSideBySide = true;
+                    const sideBySideBoost = isSideBySide ? 2.0 : 1.0;
                     const nudgeStrength = tc.avoidNudge
                         * (0.5 + 0.5 * proximity)
                         * laneProximity
                         * THREE.MathUtils.lerp(0.7, 1.25, a.packAvoidance ?? 0.5)
-                        * this._getAvoidancePreferenceScale(a, side);
+                        * this._getAvoidancePreferenceScale(a, side)
+                        * sideBySideBoost;
                     desired += side * nudgeStrength;
                 }
 
@@ -1090,6 +1097,7 @@ export class AIController {
                     && aheadDelta < bestAheadDelta) {
                     bestAhead = b;
                     bestAheadDelta = aheadDelta;
+                    bestAheadRelSpeed = Math.max(0, a.speed - b.speed);
                 }
             }
 
@@ -1107,12 +1115,22 @@ export class AIController {
                 const leftScore = this._scoreOvertakeLane(a, leftCandidate, laneLimit, tc);
                 const rightScore = this._scoreOvertakeLane(a, rightCandidate, laneLimit, tc);
                 const targetLane = leftScore >= rightScore ? leftCandidate : rightCandidate;
-                const commit = THREE.MathUtils.lerp(tc.overtakeCommit * 0.55, tc.overtakeCommit * 1.08, a.aggression ?? 0.5);
+                // 相対速度が高いほど追い越しに強くコミットする
+                const urgency = THREE.MathUtils.clamp(bestAheadRelSpeed / 12, 0, 1);
+                const baseCommit = THREE.MathUtils.lerp(tc.overtakeCommit * 0.55, tc.overtakeCommit * 1.08, a.aggression ?? 0.5);
+                const commit = Math.min(baseCommit * THREE.MathUtils.lerp(1.0, 1.6, urgency), 0.95);
                 desired = THREE.MathUtils.lerp(desired, targetLane, commit);
             }
 
             a.laneTarget = THREE.MathUtils.clamp(desired, -laneLimit, laneLimit);
-            a.laneOffset = THREE.MathUtils.lerp(a.laneOffset, a.laneTarget, tc.offsetLerp);
+            // 前方車との相対速度・横並び状態に応じて車線移動速度を上げる
+            const laneUrgency = THREE.MathUtils.clamp(bestAheadRelSpeed / 12, 0, 1);
+            const sideBySideLerpBoost = hasSideBySide ? 1.8 : 1.0;
+            const effectiveLerp = Math.min(
+                THREE.MathUtils.lerp(tc.offsetLerp, Math.min(tc.offsetLerp * 2.5, 0.30), laneUrgency) * sideBySideLerpBoost,
+                0.40
+            );
+            a.laneOffset = THREE.MathUtils.lerp(a.laneOffset, a.laneTarget, effectiveLerp);
         }
     }
 
@@ -1156,12 +1174,13 @@ export class AIController {
         return -nearestPenalty - edgePenalty + currentBias + sideBias + preferredLaneBias;
     }
 
-    _applyTrafficSpacing() {
+    _applyTrafficSpacing(dt) {
         for (const ai of this.vehicles) {
             const aggression = ai.aggression ?? 0.5;
             const spacingBias = ai.spacingBias ?? 0.5;
-            const followLookAheadT = THREE.MathUtils.lerp(0.006, 0.010, spacingBias);
-            const criticalLookAheadT = THREE.MathUtils.lerp(0.0025, 0.0040, spacingBias);
+            const followLookAheadT = THREE.MathUtils.lerp(0.008, 0.014, spacingBias);
+            // 緊急ブレーキを従来の約3倍の距離（15〜30m相当）で発動させる
+            const criticalLookAheadT = THREE.MathUtils.lerp(0.007, 0.012, spacingBias);
             const laneThreatFull = THREE.MathUtils.lerp(1.2, 1.8, spacingBias);
             const laneThreatPartial = THREE.MathUtils.lerp(2.2, 3.0, spacingBias);
             let nearestAhead = null;
@@ -1209,10 +1228,19 @@ export class AIController {
                 nearestAhead.speed + Math.max(0, 6 - relativeSpeed) * response
             );
 
+            // ソフトブレーキゾーン: 相対速度が高く接近中は targetSpeed だけでなく実速度も直接削る
+            if (relativeSpeed > 2 && laneOverlap > 0.3) {
+                const softBrake = relativeSpeed * 0.06 * closeN * laneOverlap * (dt * 60);
+                ai.speed = Math.max(nearestAhead.speed, ai.speed - softBrake);
+            }
+
+            // 緊急ブレーキ: より早く・より強く・近づくほど強度増加
             if (nearestAheadDelta < criticalLookAheadT && nearestLaneGap < laneThreatFull) {
-                const emergencyBrake = THREE.MathUtils.lerp(0.16, 0.30, spacingBias)
-                    * THREE.MathUtils.lerp(1.0, 0.82, aggression);
-                ai.speed = Math.max(nearestAhead.speed * 0.94, ai.speed - relativeSpeed * emergencyBrake);
+                const dangerN = 1 - THREE.MathUtils.clamp(nearestAheadDelta / criticalLookAheadT, 0, 1);
+                const emergencyBrake = THREE.MathUtils.lerp(0.32, 0.60, spacingBias)
+                    * THREE.MathUtils.lerp(1.0, 0.80, aggression)
+                    * THREE.MathUtils.lerp(0.5, 1.5, dangerN);
+                ai.speed = Math.max(nearestAhead.speed * 0.90, ai.speed - relativeSpeed * emergencyBrake);
             }
         }
     }
@@ -1326,9 +1354,14 @@ export class AIController {
                 const aheadAB = wrap01(b.progressT - a.progressT);
                 const aheadBA = wrap01(a.progressT - b.progressT);
 
-                // Convert world push to lane push using each car's local right-axis approximation.
-                const aLanePush = -Math.sign(nx || 1) * overlap * tc.aiAiPush;
-                const bLanePush = Math.sign(nx || 1) * overlap * tc.aiAiPush;
+                // 横並び判定: トラック進行方向の差が車体1台分以内なら横並びとみなす
+                const sideDelta = Math.min(aheadAB, aheadBA);
+                const isSideBySide = sideDelta < 0.003;
+
+                // 横並びのときは横方向への分離を強化する
+                const pushMult = isSideBySide ? 2.0 : 1.0;
+                const aLanePush = -Math.sign(nx || 1) * overlap * tc.aiAiPush * pushMult;
+                const bLanePush = Math.sign(nx || 1) * overlap * tc.aiAiPush * pushMult;
                 a.laneOffset += aLanePush;
                 b.laneOffset += bLanePush;
                 a.laneTarget += aLanePush * tc.aiAiTargetScale;
@@ -1343,14 +1376,20 @@ export class AIController {
                 a.laneTarget = THREE.MathUtils.clamp(a.laneTarget, -aLimit, aLimit);
                 b.laneTarget = THREE.MathUtils.clamp(b.laneTarget, -bLimit, bLimit);
 
-                if (aheadAB < aheadBA) {
-                    a.speed = Math.min(a.speed, b.speed * tc.overlapSpeedCut);
+                if (isSideBySide) {
+                    // 横並び: 速度ロスなし。横への分離のみ行う
                 } else {
-                    b.speed = Math.min(b.speed, a.speed * tc.overlapSpeedCut);
+                    // 追突: 後ろの車の速度だけを抑制（前の車は巻き込まない）
+                    if (aheadAB < aheadBA) {
+                        a.speed = Math.min(a.speed, b.speed * tc.overlapSpeedCut);
+                    } else {
+                        b.speed = Math.min(b.speed, a.speed * tc.overlapSpeedCut);
+                    }
+                    // dt スケールで速度ロスを適用（フレームレートに依存しない）
+                    const loss = Math.pow(tc.aiAiSpeedLoss, dt * 60);
+                    a.speed *= loss;
+                    b.speed *= loss;
                 }
-
-                a.speed *= tc.aiAiSpeedLoss;
-                b.speed *= tc.aiAiSpeedLoss;
             }
         }
 
