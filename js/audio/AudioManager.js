@@ -353,7 +353,7 @@ export class AudioManager {
 
     _initMusicPlayers() {
         // Tracks that should NOT loop (play once then stop)
-        const noLoop = new Set(['result', 'victory1', 'victory2', 'victory3']);
+        const noLoop = new Set(['victory1', 'victory2', 'victory3', 'result']);
 
         for (const [key, path] of Object.entries(MUSIC_TRACKS)) {
             const audio = new Audio(path);
