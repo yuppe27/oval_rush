@@ -947,11 +947,70 @@ export class CourseBuilder {
     }
 
     _buildSeasideScenery() {
+        this._buildSeasideTerrain();
         this._buildSeasideBeach();
         this._buildSeasideTown();
         this._buildSeasideCliffs();
         this._buildSeasideTunnel();
         this._buildLighthouse();
+    }
+
+    _buildSeasideTerrain() {
+        const N = this.sampledPoints.length;
+        const step = 2;
+        const baseY = -3.5;
+        const edgeOffset = 1.5;
+        const mat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.92,
+            metalness: 0.0,
+            side: THREE.DoubleSide,
+        });
+
+        for (const side of [-1, 1]) {
+            const vertices = [];
+            const colors = [];
+            const indices = [];
+            let segCount = 0;
+
+            for (let i = 0; i <= N; i += step) {
+                const sp = this.sampledPoints[i % N];
+                const halfW = sp.width / 2;
+                const edge = sp.position.clone()
+                    .addScaledVector(sp.right, side * (halfW + edgeOffset));
+
+                // upper vertex — road edge
+                vertices.push(edge.x, edge.y, edge.z);
+                colors.push(0.42, 0.55, 0.34); // grass green
+
+                // lower vertex — water level
+                vertices.push(edge.x, baseY, edge.z);
+                colors.push(0.77, 0.65, 0.42); // sandy brown
+
+                if (segCount > 0) {
+                    const bl = (segCount - 1) * 2;
+                    const br = bl + 1;
+                    const tl = segCount * 2;
+                    const tr = tl + 1;
+                    if (side > 0) {
+                        indices.push(bl, tl, br, br, tl, tr);
+                    } else {
+                        indices.push(bl, br, tl, tl, br, tr);
+                    }
+                }
+                segCount++;
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.receiveShadow = true;
+            this.group.add(mesh);
+        }
     }
 
     _buildSeasideBeach() {
@@ -1315,6 +1374,7 @@ export class CourseBuilder {
     }
 
     _buildMountainScenery() {
+        this._buildMountainTerrain();
         this._buildMountainPeaks();
         this._buildMountainForest();
         this._buildMountainBridge();
@@ -1584,7 +1644,7 @@ export class CourseBuilder {
     }
 
     _getCurveWarningSignTexture(turnSign) {
-        const key = turnSign >= 0 ? 'left' : 'right';
+        const key = turnSign >= 0 ? 'right' : 'left';
         if (this._curveSignTextureCache.has(key)) {
             return this._curveSignTextureCache.get(key);
         }
@@ -1621,6 +1681,80 @@ export class CourseBuilder {
         texture.needsUpdate = true;
         this._curveSignTextureCache.set(key, texture);
         return texture;
+    }
+
+    _buildMountainTerrain() {
+        const N = this.sampledPoints.length;
+        const step = 2;
+        const baseY = -26;
+        const edgeOffset = 1.5;
+        const LEVELS = 4;
+        const lateralSpread = [0, 8, 14, 18];
+        // grass green → grey rock → dark rock
+        const levelColors = [
+            [0.29, 0.43, 0.23],
+            [0.36, 0.40, 0.35],
+            [0.42, 0.46, 0.41],
+            [0.30, 0.33, 0.31],
+        ];
+        const mat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.94,
+            metalness: 0.0,
+            side: THREE.DoubleSide,
+        });
+
+        for (const side of [-1, 1]) {
+            const vertices = [];
+            const colors = [];
+            const indices = [];
+            let segCount = 0;
+
+            for (let i = 0; i <= N; i += step) {
+                const sp = this.sampledPoints[i % N];
+                const halfW = sp.width / 2;
+                const edgeY = sp.position.y;
+
+                for (let lv = 0; lv < LEVELS; lv++) {
+                    const t = lv / (LEVELS - 1);
+                    const y = THREE.MathUtils.lerp(edgeY, baseY, t);
+                    const lateral = halfW + edgeOffset + lateralSpread[lv];
+                    const pos = sp.position.clone()
+                        .addScaledVector(sp.right, side * lateral);
+                    pos.y = y;
+                    vertices.push(pos.x, pos.y, pos.z);
+                    const c = levelColors[lv];
+                    colors.push(c[0], c[1], c[2]);
+                }
+
+                if (segCount > 0) {
+                    const prev = (segCount - 1) * LEVELS;
+                    const curr = segCount * LEVELS;
+                    for (let lv = 0; lv < LEVELS - 1; lv++) {
+                        const bl = prev + lv;
+                        const br = prev + lv + 1;
+                        const tl = curr + lv;
+                        const tr = curr + lv + 1;
+                        if (side > 0) {
+                            indices.push(bl, tl, br, br, tl, tr);
+                        } else {
+                            indices.push(bl, br, tl, tl, br, tr);
+                        }
+                    }
+                }
+                segCount++;
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.receiveShadow = true;
+            this.group.add(mesh);
+        }
     }
 
     _buildMountainPeaks() {
@@ -1715,6 +1849,19 @@ export class CourseBuilder {
             roughness: 1,
             depthWrite: false,
         });
+
+        // large cloud base covering the course area
+        const center = new THREE.Vector3();
+        for (const sp of this.sampledPoints) {
+            center.add(sp.position);
+        }
+        center.divideScalar(this.sampledPoints.length);
+        const mainCloud = new THREE.Mesh(new THREE.CircleGeometry(350, 48), cloudMat);
+        mainCloud.rotation.x = -Math.PI / 2;
+        mainCloud.position.set(center.x, -26, center.z);
+        this.group.add(mainCloud);
+
+        // smaller accent clouds for layered depth
         const cloudPositions = [
             [-120, -320, 120, 40],
             [120, -360, 140, 44],
@@ -1723,7 +1870,7 @@ export class CourseBuilder {
         for (const [x, z, w, h] of cloudPositions) {
             const cloud = new THREE.Mesh(new THREE.CircleGeometry(w, 20), cloudMat);
             cloud.rotation.x = -Math.PI / 2;
-            cloud.position.set(x, -26, z);
+            cloud.position.set(x, -24, z);
             cloud.scale.set(1, h / w, 1);
             this.group.add(cloud);
         }
