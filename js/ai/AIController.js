@@ -273,9 +273,9 @@ export class AIController {
             const preferredLaneBias = (Math.random() - 0.5) * 1.2;
             const preferredOvertakeSide = Math.random() < 0.5 ? -1 : 1;
             // Distribute pace evenly across the grid so cars naturally spread out.
-            // Index-based spacing ensures a wide, even spread (0.82–1.10).
-            const paceBase = 0.82 + (i / Math.max(1, this.aiCount - 1)) * 0.28;
-            const pace = THREE.MathUtils.clamp(paceBase + (Math.random() - 0.5) * 0.06, 0.80, 1.12);
+            // Index-based spacing ensures a wide, even spread (0.78–1.16).
+            const paceBase = 0.78 + (i / Math.max(1, this.aiCount - 1)) * 0.36;
+            const pace = THREE.MathUtils.clamp(paceBase + (Math.random() - 0.5) * 0.10, 0.76, 1.18);
             const lane = THREE.MathUtils.clamp(
                 (Math.random() - 0.5) * 4.8 + preferredLaneBias * 1.2,
                 -4.8,
@@ -742,8 +742,8 @@ export class AIController {
                 const wpSpeed = wp ? wp.suggestedSpeed * ai.paceFactor * driftPenalty : effectiveMaxSpeed;
                 const rbRaw = this._getRubberBandFactor(aiAbs, playerAbs);
                 // Dampen rubber-band for slower cars so pace differences survive.
-                // Fast cars (pace ~1.1) get full rubber-band; slow cars (pace ~0.82) get ~60%.
-                const rbDampen = THREE.MathUtils.lerp(0.6, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.80) / 0.30, 0, 1));
+                // Fast cars (pace ~1.16) get full rubber-band; slow cars (pace ~0.78) get ~40%.
+                const rbDampen = THREE.MathUtils.lerp(0.4, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1));
                 const rb = 1.0 + (rbRaw - 1.0) * rbDampen;
                 const desired = Math.min(effectiveMaxSpeed, wpSpeed * rb);
                 ai.targetSpeed = THREE.MathUtils.lerp(
@@ -1409,15 +1409,30 @@ export class AIController {
                     // 横並び: 速度ロスなし。横への分離のみ行う
                 } else {
                     // 追突: 後ろの車の速度だけを抑制（前の車は巻き込まない）
-                    if (aheadAB < aheadBA) {
-                        a.speed = Math.min(a.speed, b.speed * tc.overlapSpeedCut);
-                    } else {
-                        b.speed = Math.min(b.speed, a.speed * tc.overlapSpeedCut);
-                    }
+                    const rear = aheadAB < aheadBA ? a : b;
+                    const front = aheadAB < aheadBA ? b : a;
+                    rear.speed = Math.min(rear.speed, front.speed * tc.overlapSpeedCut);
                     // dt スケールで速度ロスを適用（フレームレートに依存しない）
                     const loss = Math.pow(tc.aiAiSpeedLoss, dt * 60);
                     a.speed *= loss;
                     b.speed *= loss;
+
+                    // 後方車が左右の空いている方へ回避する
+                    const tl = this.tuning.lane;
+                    const rearLimit = rear === a ? aLimit : bLimit;
+                    const leftCandidate = THREE.MathUtils.clamp(
+                        front.laneOffset - tl.overtakeSideOffset,
+                        -rearLimit, rearLimit
+                    );
+                    const rightCandidate = THREE.MathUtils.clamp(
+                        front.laneOffset + tl.overtakeSideOffset,
+                        -rearLimit, rearLimit
+                    );
+                    const leftScore = this._scoreOvertakeLane(rear, leftCandidate, rearLimit, tl);
+                    const rightScore = this._scoreOvertakeLane(rear, rightCandidate, rearLimit, tl);
+                    const avoidTarget = leftScore >= rightScore ? leftCandidate : rightCandidate;
+                    rear.laneTarget = THREE.MathUtils.lerp(rear.laneTarget, avoidTarget, 0.7);
+                    rear.laneTarget = THREE.MathUtils.clamp(rear.laneTarget, -rearLimit, rearLimit);
                 }
             }
         }
