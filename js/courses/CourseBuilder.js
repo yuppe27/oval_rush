@@ -951,6 +951,7 @@ export class CourseBuilder {
         this._buildSeasideBeach();
         this._buildSeasideTown();
         this._buildSeasideCliffs();
+        this._buildTunnelMountain();
         this._buildSeasideTunnel();
         this._buildLighthouse();
     }
@@ -1176,6 +1177,178 @@ export class CourseBuilder {
         const lantern = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 7, 8), topMat);
         lantern.position.set(safeBasePos.x, safeBasePos.y + 23, safeBasePos.z);
         this.group.add(lantern);
+    }
+
+    _buildTunnelMountain() {
+        const tunnelZone = this.courseData?.zones?.tunnel?.[0];
+        if (!tunnelZone) return;
+
+        const startIdx = this._findSampleIndexAt(tunnelZone.start);
+        const endIdx = this._findSampleIndexAt(tunnelZone.end);
+        const indices = this._collectWrappedIndices(startIdx, endIdx);
+        if (indices.length < 2) return;
+
+        // Mountain material — earthy brown-grey rock
+        const mountainMat = new THREE.MeshStandardMaterial({
+            color: 0x6b6256,
+            roughness: 0.96,
+            metalness: 0.02,
+        });
+        const grassMat = new THREE.MeshStandardMaterial({
+            color: 0x4a6a3a,
+            roughness: 0.94,
+            metalness: 0.0,
+        });
+
+        // Gather tunnel path center and direction
+        const midIdx = indices[Math.floor(indices.length / 2)];
+        const midSp = this.sampledPoints[midIdx];
+        const firstSp = this.sampledPoints[indices[0]];
+        const lastSp = this.sampledPoints[indices[indices.length - 1]];
+
+        // Tunnel direction vector (start → end)
+        const tunnelDir = new THREE.Vector3()
+            .subVectors(lastSp.position, firstSp.position);
+        const tunnelLength = tunnelDir.length();
+        tunnelDir.normalize();
+
+        // Build mountain body as stacked cross-sections along the tunnel path
+        // This creates a natural mountain silhouette that the tunnel penetrates
+        const sectionCount = 14;
+        const maxHeight = 52;
+        const baseRadius = 48;
+        const mountainExtend = 35; // extra extension beyond tunnel portals
+
+        for (let s = -1; s <= sectionCount + 1; s++) {
+            const t = s / sectionCount;
+            // Position along the tunnel with extension beyond portals
+            const pos = firstSp.position.clone()
+                .addScaledVector(tunnelDir, -mountainExtend + (tunnelLength + mountainExtend * 2) * t);
+
+            // Mountain profile: tallest at center, taper at edges using cosine curve
+            const profileT = (s + 1) / (sectionCount + 2);
+            const profileFactor = Math.sin(profileT * Math.PI);
+            const sectionHeight = maxHeight * profileFactor;
+            const sectionWidth = baseRadius * (0.6 + 0.4 * profileFactor);
+
+            if (sectionHeight < 3) continue;
+
+            // Overlap factor keeps segments joined with no visible gaps
+            const segDepth = tunnelLength / sectionCount + 12;
+
+            // Main mountain body — large cross-section box
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(sectionWidth * 2, sectionHeight, segDepth),
+                mountainMat
+            );
+            const bodyY = midSp.position.y + sectionHeight * 0.35;
+            body.position.set(pos.x, bodyY, pos.z);
+            body.lookAt(pos.x + tunnelDir.x, bodyY, pos.z + tunnelDir.z);
+            body.castShadow = true;
+            body.receiveShadow = true;
+            this.group.add(body);
+
+            // Grass layer on top — slightly wider overlap to hide seams
+            const grassCap = new THREE.Mesh(
+                new THREE.BoxGeometry(sectionWidth * 1.85, 2.8, segDepth),
+                grassMat
+            );
+            grassCap.position.set(pos.x, bodyY + sectionHeight * 0.48, pos.z);
+            grassCap.lookAt(pos.x + tunnelDir.x, bodyY + sectionHeight * 0.48, pos.z + tunnelDir.z);
+            grassCap.receiveShadow = true;
+            this.group.add(grassCap);
+        }
+
+        // Central peak — cone embedded into the mountain body (base hidden)
+        const peakHeight = 28;
+        const peakBaseY = midSp.position.y + maxHeight * 0.55;
+        const peakCone = new THREE.Mesh(
+            new THREE.ConeGeometry(32, peakHeight, 8),
+            grassMat
+        );
+        peakCone.position.set(midSp.position.x, peakBaseY + peakHeight * 0.5, midSp.position.z);
+        peakCone.castShadow = true;
+        peakCone.receiveShadow = true;
+        this.group.add(peakCone);
+
+        // Secondary smaller peaks for a natural ridgeline
+        const ridgeOffsets = [-0.28, 0.32];
+        for (const off of ridgeOffsets) {
+            const ridgeT = 0.5 + off;
+            const ridgeIdx = indices[Math.floor(THREE.MathUtils.clamp(ridgeT, 0, 1) * (indices.length - 1))];
+            const ridgeSp = this.sampledPoints[ridgeIdx];
+            const ridgeHeight = 18 + Math.abs(off) * 14;
+            const ridgeCone = new THREE.Mesh(
+                new THREE.ConeGeometry(20, ridgeHeight, 7),
+                grassMat
+            );
+            ridgeCone.position.set(
+                ridgeSp.position.x,
+                ridgeSp.position.y + maxHeight * 0.42 + ridgeHeight * 0.35,
+                ridgeSp.position.z
+            );
+            ridgeCone.castShadow = true;
+            ridgeCone.receiveShadow = true;
+            this.group.add(ridgeCone);
+        }
+
+        // Slope skirts — connect mountain base to terrain level (water level = -3.5)
+        const baseY = -3.5;
+        for (const side of [-1, 1]) {
+            const slopeVertices = [];
+            const slopeColors = [];
+            const slopeIndices = [];
+            let segCount = 0;
+            const slopeStep = Math.max(1, Math.floor(indices.length / 28));
+
+            for (let i = -4; i <= indices.length + 4; i += slopeStep) {
+                const clampedI = THREE.MathUtils.clamp(i, 0, indices.length - 1);
+                const sp = this.sampledPoints[indices[clampedI]];
+                const profileT = (i + 4) / (indices.length + 8);
+                const profileFactor = Math.sin(profileT * Math.PI);
+                const slopeWidth = baseRadius * (0.6 + 0.4 * profileFactor);
+                const slopeTop = sp.position.clone()
+                    .addScaledVector(sp.right, side * slopeWidth);
+                slopeTop.y = sp.position.y + maxHeight * profileFactor * 0.3;
+
+                // upper: mountain edge
+                slopeVertices.push(slopeTop.x, slopeTop.y, slopeTop.z);
+                slopeColors.push(0.42, 0.55, 0.34); // grass
+                // lower: ground level, extended outward for gentle slope
+                const extendedX = slopeTop.x + side * slopeWidth * 0.4;
+                const extendedZ = slopeTop.z;
+                slopeVertices.push(extendedX, baseY, extendedZ);
+                slopeColors.push(0.65, 0.55, 0.38); // sandy earth
+
+                if (segCount > 0) {
+                    const bl = (segCount - 1) * 2;
+                    const br = bl + 1;
+                    const tl = segCount * 2;
+                    const tr = tl + 1;
+                    if (side > 0) {
+                        slopeIndices.push(bl, tl, br, br, tl, tr);
+                    } else {
+                        slopeIndices.push(bl, br, tl, tl, br, tr);
+                    }
+                }
+                segCount++;
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(slopeVertices, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(slopeColors, 3));
+            geo.setIndex(slopeIndices);
+            geo.computeVertexNormals();
+
+            const slopeMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.92,
+                metalness: 0.0,
+                side: THREE.DoubleSide,
+            }));
+            slopeMesh.receiveShadow = true;
+            this.group.add(slopeMesh);
+        }
     }
 
     _buildSeasideTunnel() {
