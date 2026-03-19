@@ -1423,7 +1423,7 @@ export class CourseBuilder {
         const candidates = this._findCurveWarningCandidates(profile);
         for (const candidate of candidates) {
             const turnSign = Math.sign(candidate.signedCurve) || 1;
-            const side = turnSign;
+            const side = -turnSign;
             for (const signIndex of candidate.signIndices) {
                 const sp = this.sampledPoints[signIndex];
                 if (!sp) continue;
