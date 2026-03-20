@@ -41,6 +41,8 @@ class Game {
         this._debugActive = false;
         this._debugWireframe = false;
         this._debugFocus = 'vehicle';
+        this._debugFocusOrder = ['vehicle', 'nearest_ai', 'course'];
+        this._debugShowAI = false;
         this._debugSceneState = null;
         this._debugPreviousCameraMode = 'chase';
         this.audio.setRaceMusicTrack(this._courseId);
@@ -543,6 +545,7 @@ class Game {
             this.input.consumeDebugFocus();
             this.input.consumeDebugWireframe();
             this.input.consumeDebugReset();
+            this.input.consumeDebugAIToggle();
             return;
         }
 
@@ -554,12 +557,14 @@ class Game {
             this.input.consumeDebugFocus();
             this.input.consumeDebugWireframe();
             this.input.consumeDebugReset();
+            this.input.consumeDebugAIToggle();
             return;
         }
 
         if (this.input.consumeDebugFocus()) {
-            this._debugFocus = this._debugFocus === 'vehicle' ? 'course' : 'vehicle';
+            this._debugFocus = this._getNextDebugFocus();
             this._resetDebugCamera();
+            this._refreshDebugAIVisibility();
         }
         if (this.input.consumeDebugWireframe()) {
             this._debugWireframe = !this._debugWireframe;
@@ -567,6 +572,10 @@ class Game {
         }
         if (this.input.consumeDebugReset()) {
             this._resetDebugCamera();
+        }
+        if (this.input.consumeDebugAIToggle()) {
+            this._debugShowAI = !this._debugShowAI;
+            this._refreshDebugAIVisibility();
         }
     }
 
@@ -578,6 +587,7 @@ class Game {
         if (active) {
             this._debugPreviousCameraMode = this.cameraController.mode;
             this._debugFocus = 'vehicle';
+            this._debugShowAI = false;
             this._debugWireframe = true;
             this._applyDebugSceneState(true);
             this._applyDebugWireframe();
@@ -610,7 +620,7 @@ class Game {
                 this.renderer.scene.fog.near = 1400;
                 this.renderer.scene.fog.far = 3200;
             }
-            this._setAIVisible(false);
+            this._refreshDebugAIVisibility();
             return;
         }
 
@@ -631,6 +641,27 @@ class Game {
         }
     }
 
+    _refreshDebugAIVisibility() {
+        if (!this._debugActive) return;
+        const forceVisible = this._debugFocus === 'nearest_ai' && this._hasDebugAI();
+        this._setAIVisible(this._debugShowAI || forceVisible);
+    }
+
+    _hasDebugAI() {
+        return (this.aiController?.vehicles?.length ?? 0) > 0;
+    }
+
+    _getNextDebugFocus() {
+        const currentIdx = this._debugFocusOrder.indexOf(this._debugFocus);
+        for (let offset = 1; offset <= this._debugFocusOrder.length; offset++) {
+            const next = this._debugFocusOrder[(Math.max(0, currentIdx) + offset) % this._debugFocusOrder.length];
+            if (next !== 'nearest_ai' || this._hasDebugAI()) {
+                return next;
+            }
+        }
+        return 'vehicle';
+    }
+
     _applyDebugWireframe() {
         this.courseBuilder.setDebugWireframe(this._debugWireframe);
         this.player.model.setDebugWireframe(this._debugWireframe);
@@ -648,6 +679,20 @@ class Game {
             return;
         }
 
+        if (this._debugFocus === 'nearest_ai') {
+            const ai = this._getNearestAIForDebug();
+            const yaw = ai?.forward?.lengthSq?.() > 0
+                ? Math.atan2(ai.forward.x, ai.forward.z) + Math.PI + 0.45
+                : this.player.rotation + Math.PI + 0.45;
+            this.cameraController.setDebugActive(true, {
+                target,
+                distance: 9.5,
+                yaw,
+                pitch: 0.28,
+            });
+            return;
+        }
+
         this.cameraController.setDebugActive(true, {
             target,
             distance: THREE.MathUtils.clamp(this.courseBuilder.courseLength * 0.035, 78, 190),
@@ -660,17 +705,54 @@ class Game {
         if (this._debugFocus === 'vehicle') {
             return this.player.position.clone().add(new THREE.Vector3(0, 1.15, 0));
         }
+        if (this._debugFocus === 'nearest_ai') {
+            return this._getNearestAIForDebug()?.position?.clone()?.add(new THREE.Vector3(0, 1.05, 0))
+                || this.player.position.clone().add(new THREE.Vector3(0, 1.15, 0));
+        }
         return this.courseBuilder.getDebugFocusPoint();
+    }
+
+    _getNearestAIForDebug() {
+        if (!this.aiController?.vehicles?.length) return null;
+        let nearest = null;
+        let nearestDistSq = Infinity;
+        for (const ai of this.aiController.vehicles) {
+            if (!ai?.position) continue;
+            const distSq = ai.position.distanceToSquared(this.player.position);
+            if (distSq < nearestDistSq) {
+                nearestDistSq = distSq;
+                nearest = ai;
+            }
+        }
+        return nearest;
     }
 
     _updateDebugPanel() {
         const cam = this.cameraController.camera.position;
+        const nearestAI = this._getNearestAIForDebug();
+        const hasAI = this._hasDebugAI();
+        const focusLabel = this._debugFocus === 'vehicle'
+            ? 'PLAYER MODEL'
+            : this._debugFocus === 'nearest_ai'
+                ? `NEAREST AI${nearestAI ? ` #${nearestAI.id}` : ' (N/A)'}`
+                : 'COURSE OVERVIEW';
+        const aiVisible = hasAI && (this._debugFocus === 'nearest_ai' || this._debugShowAI);
+        const raceState = this.raceManager?.state || 'idle';
+        const playerSpeed = this.player.getSpeedKmh().toFixed(0);
+        const playerTrack = (this.player.trackT || 0).toFixed(3);
+        const aiLine = nearestAI
+            ? `AI#${nearestAI.id} ${ (nearestAI.speed * 3.6).toFixed(0)}KMH LANE ${nearestAI.laneOffset.toFixed(2)} T ${nearestAI.progressT.toFixed(3)}`
+            : `AI ${hasAI ? 'UNAVAILABLE' : 'DISABLED'}`;
         this.hud.setDebugPanel(true, [
             'DEBUG INSPECTOR',
-            `FOCUS ${this._debugFocus === 'vehicle' ? 'PLAYER MODEL' : 'COURSE OVERVIEW'}`,
+            `FOCUS ${focusLabel}`,
             `WIREFRAME ${this._debugWireframe ? 'ON' : 'OFF'}`,
+            `AI ${aiVisible ? 'VISIBLE' : 'HIDDEN'}`,
+            `RACE ${raceState}  POS ${this.raceManager.playerPosition}/${this.raceManager.totalRacers}`,
+            `PLAYER ${playerSpeed}KMH T ${playerTrack}`,
+            aiLine,
             `CAM ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}`,
-            'F1 EXIT  F2 FOCUS  F3 WIREFRAME  F4 RESET',
+            'F1 EXIT  F2 FOCUS  F3 WIREFRAME  F4 RESET  F6 AI',
             'LMB ORBIT  W A S D PAN  Q/E UP-DOWN  WHEEL ZOOM',
         ]);
     }

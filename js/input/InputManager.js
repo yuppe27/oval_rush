@@ -8,7 +8,7 @@ const GAME_KEYS = new Set([
     'KeyZ', 'KeyX', 'KeyC', 'Space',
 ]);
 
-const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4']);
+const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4', 'F6']);
 
 export class InputManager {
     constructor() {
@@ -23,6 +23,7 @@ export class InputManager {
         this._debugFocusRequested = false;
         this._debugWireframeRequested = false;
         this._debugResetRequested = false;
+        this._debugAIToggleRequested = false;
 
         this._gpPrevButtons = {};
 
@@ -47,6 +48,7 @@ export class InputManager {
                 if (e.code === 'F2') this._debugFocusRequested = true;
                 if (e.code === 'F3') this._debugWireframeRequested = true;
                 if (e.code === 'F4') this._debugResetRequested = true;
+                if (e.code === 'F6') this._debugAIToggleRequested = true;
             }
             if (GAME_KEYS.has(e.code) || DEBUG_KEYS.has(e.code)) {
                 e.preventDefault();
@@ -65,6 +67,7 @@ export class InputManager {
             this._debugFocusRequested = false;
             this._debugWireframeRequested = false;
             this._debugResetRequested = false;
+            this._debugAIToggleRequested = false;
         };
         this._handleStorage = (e) => {
             if (e.key !== OPTIONS_KEY) return;
@@ -166,6 +169,12 @@ export class InputManager {
     consumeDebugReset() {
         const value = this._debugResetRequested;
         this._debugResetRequested = false;
+        return value;
+    }
+
+    consumeDebugAIToggle() {
+        const value = this._debugAIToggleRequested;
+        this._debugAIToggleRequested = false;
         return value;
     }
 
