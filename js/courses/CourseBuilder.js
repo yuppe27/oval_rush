@@ -1454,11 +1454,16 @@ export class CourseBuilder {
             roughness: 0.45,
         });
         const rockMat = new THREE.MeshStandardMaterial({ color: 0x756a5f, roughness: 0.98 });
+        const grassMat = new THREE.MeshStandardMaterial({ color: 0x4d6f3c, roughness: 0.96 });
         const segmentStep = 1;
 
         if (indices.length) {
-            this._buildTunnelPortal(this.sampledPoints[indices[0]], portalMat);
-            this._buildTunnelPortal(this.sampledPoints[indices[indices.length - 1]], portalMat);
+            const startSp = this.sampledPoints[indices[0]];
+            const endSp = this.sampledPoints[indices[indices.length - 1]];
+            this._buildTunnelPortal(startSp, portalMat);
+            this._buildTunnelPortal(endSp, portalMat);
+            this._buildTunnelPortalMountainExterior(startSp, -1, rockMat, grassMat);
+            this._buildTunnelPortalMountainExterior(endSp, 1, rockMat, grassMat);
         }
 
         for (let i = 0; i < indices.length; i += segmentStep) {
@@ -1617,6 +1622,210 @@ export class CourseBuilder {
             this.group.add(embankment);
         }
 
+    }
+
+    _buildTunnelPortalMountainExterior(sp, exteriorSign, rockMat, grassMat) {
+        if (!sp || !exteriorSign) return;
+
+        const portalHalfWidth = sp.width * 0.5 + 6.2;
+        const portalPlaneGap = 18.0;
+        const keepoutHalfWidth = portalHalfWidth + 8.5;
+        const rings = [
+            {
+                z: portalPlaneGap,
+                landToe: portalHalfWidth + 18,
+                landShoulder: portalHalfWidth + 12,
+                landBaseY: 18.0,
+                landShoulderY: 23.5,
+                leftOuterTop: portalHalfWidth + 10,
+                leftOuterTopY: 27.2,
+                leftKeepout: keepoutHalfWidth + 1.5,
+                keepoutY: 28.4,
+                apexX: -2.0,
+                topY: 30.8,
+                rightKeepout: keepoutHalfWidth + 1.0,
+                rightOuterTop: portalHalfWidth + 7,
+                rightOuterTopY: 26.6,
+                seaShoulder: portalHalfWidth + 9,
+                seaToe: portalHalfWidth + 14,
+                seaShoulderY: 22.6,
+                seaBaseY: 18.4,
+            },
+            {
+                z: portalPlaneGap + 16,
+                landToe: portalHalfWidth + 40,
+                landShoulder: portalHalfWidth + 28,
+                landBaseY: 16.0,
+                landShoulderY: 26.0,
+                leftOuterTop: portalHalfWidth + 18,
+                leftOuterTopY: 29.4,
+                leftKeepout: keepoutHalfWidth + 4.5,
+                keepoutY: 29.8,
+                apexX: -5.5,
+                topY: 31.6,
+                rightKeepout: keepoutHalfWidth + 3.0,
+                rightOuterTop: portalHalfWidth + 11,
+                rightOuterTopY: 27.8,
+                seaShoulder: portalHalfWidth + 16,
+                seaToe: portalHalfWidth + 24,
+                seaShoulderY: 23.4,
+                seaBaseY: 17.6,
+            },
+            {
+                z: portalPlaneGap + 34,
+                landToe: portalHalfWidth + 76,
+                landShoulder: portalHalfWidth + 54,
+                landBaseY: 15.5,
+                landShoulderY: 28.8,
+                leftOuterTop: portalHalfWidth + 30,
+                leftOuterTopY: 31.6,
+                leftKeepout: keepoutHalfWidth + 7.0,
+                keepoutY: 29.0,
+                apexX: -10.0,
+                topY: 32.2,
+                rightKeepout: keepoutHalfWidth + 5.0,
+                rightOuterTop: portalHalfWidth + 18,
+                rightOuterTopY: 27.6,
+                seaShoulder: portalHalfWidth + 24,
+                seaToe: portalHalfWidth + 38,
+                seaShoulderY: 20.5,
+                seaBaseY: 15.0,
+            },
+            {
+                z: portalPlaneGap + 54,
+                landToe: portalHalfWidth + 102,
+                landShoulder: portalHalfWidth + 72,
+                landBaseY: 18.0,
+                landShoulderY: 31.2,
+                leftOuterTop: portalHalfWidth + 36,
+                leftOuterTopY: 34.0,
+                leftKeepout: keepoutHalfWidth + 9.0,
+                keepoutY: 31.0,
+                apexX: -15.0,
+                topY: 33.0,
+                rightKeepout: keepoutHalfWidth + 7.0,
+                rightOuterTop: portalHalfWidth + 22,
+                rightOuterTopY: 29.0,
+                seaShoulder: portalHalfWidth + 22,
+                seaToe: portalHalfWidth + 38,
+                seaShoulderY: 21.0,
+                seaBaseY: 13.4,
+            },
+            {
+                z: portalPlaneGap + 76,
+                landToe: portalHalfWidth + 128,
+                landShoulder: portalHalfWidth + 92,
+                landBaseY: 22.5,
+                landShoulderY: 34.0,
+                leftOuterTop: portalHalfWidth + 42,
+                leftOuterTopY: 36.4,
+                leftKeepout: keepoutHalfWidth + 11.0,
+                keepoutY: 33.2,
+                apexX: -18.0,
+                topY: 36.0,
+                rightKeepout: keepoutHalfWidth + 9.0,
+                rightOuterTop: portalHalfWidth + 26,
+                rightOuterTopY: 31.2,
+                seaShoulder: portalHalfWidth + 26,
+                seaToe: portalHalfWidth + 46,
+                seaShoulderY: 23.5,
+                seaBaseY: 17.2,
+            },
+        ];
+        const profilePointCount = 9;
+        const rockVerts = [];
+        const rockIdx = [];
+        const grassVerts = [];
+        const grassIdx = [];
+        const topLift = 0.18;
+
+        const toWorld = (x, y, z) => sp.position.clone()
+            .addScaledVector(sp.right, x)
+            .addScaledVector(sp.up, y)
+            .addScaledVector(sp.forward, exteriorSign * z);
+        const pushVertex = (target, vec) => {
+            target.push(vec.x, vec.y, vec.z);
+        };
+
+        for (let i = 0; i < rings.length; i++) {
+            const ring = rings[i];
+            const profile = [
+                { x: -ring.landToe,      y: ring.landBaseY },
+                { x: -ring.landShoulder, y: ring.landShoulderY },
+                { x: -ring.leftOuterTop, y: ring.leftOuterTopY },
+                { x: -ring.leftKeepout,  y: ring.keepoutY },
+                { x: ring.apexX,         y: ring.topY },
+                { x: ring.rightKeepout,  y: ring.keepoutY - 0.4 },
+                { x: ring.rightOuterTop, y: ring.rightOuterTopY },
+                { x: ring.seaShoulder,   y: ring.seaShoulderY },
+                { x: ring.seaToe,        y: ring.seaBaseY },
+            ];
+
+            for (const pt of profile) {
+                pushVertex(rockVerts, toWorld(pt.x, pt.y, ring.z));
+            }
+
+            pushVertex(grassVerts, toWorld(-ring.leftKeepout, ring.keepoutY + topLift, ring.z));
+            pushVertex(grassVerts, toWorld(ring.apexX, ring.topY + 0.55 + topLift, ring.z));
+            pushVertex(grassVerts, toWorld(ring.rightKeepout, ring.keepoutY - 0.15 + topLift, ring.z));
+        }
+
+        for (let i = 0; i < rings.length - 1; i++) {
+            const cur = i * profilePointCount;
+            const next = (i + 1) * profilePointCount;
+            for (let j = 0; j < profilePointCount - 1; j++) {
+                const a = cur + j;
+                const b = cur + j + 1;
+                const c = next + j;
+                const d = next + j + 1;
+                rockIdx.push(a, c, b, b, c, d);
+            }
+
+            const gCur = i * 3;
+            const gNext = (i + 1) * 3;
+            rockIdx.push(cur, next, next + 6, cur, next + 6, cur + 6);
+            for (let j = 0; j < 2; j++) {
+                const a = gCur + j;
+                const b = gCur + j + 1;
+                const c = gNext + j;
+                const d = gNext + j + 1;
+                grassIdx.push(a, c, b, b, c, d);
+            }
+        }
+
+        for (let j = 2; j < profilePointCount - 2; j++) {
+            rockIdx.push(0, j + 1, j);
+        }
+
+        const backBase = (rings.length - 1) * profilePointCount;
+        for (let j = 1; j < profilePointCount - 1; j++) {
+            rockIdx.push(backBase, backBase + j, backBase + j + 1);
+        }
+
+        const rockGeo = new THREE.BufferGeometry();
+        rockGeo.setAttribute('position', new THREE.Float32BufferAttribute(rockVerts, 3));
+        rockGeo.setIndex(rockIdx);
+        rockGeo.computeVertexNormals();
+
+        const rockExteriorMat = rockMat.clone();
+        rockExteriorMat.side = THREE.DoubleSide;
+        const rockMesh = new THREE.Mesh(rockGeo, rockExteriorMat);
+        rockMesh.castShadow = true;
+        rockMesh.receiveShadow = true;
+        // Exterior shell only: all vertices are placed outside the portal plane.
+        this.group.add(rockMesh);
+
+        const grassGeo = new THREE.BufferGeometry();
+        grassGeo.setAttribute('position', new THREE.Float32BufferAttribute(grassVerts, 3));
+        grassGeo.setIndex(grassIdx);
+        grassGeo.computeVertexNormals();
+
+        const grassExteriorMat = grassMat.clone();
+        grassExteriorMat.side = THREE.DoubleSide;
+        const grassMesh = new THREE.Mesh(grassGeo, grassExteriorMat);
+        grassMesh.castShadow = false;
+        grassMesh.receiveShadow = true;
+        this.group.add(grassMesh);
     }
 
     _getSafeSceneryPosition(position, clearance = 16) {
