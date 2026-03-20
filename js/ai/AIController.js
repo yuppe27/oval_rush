@@ -1325,7 +1325,7 @@ export class AIController {
                 this._dummy.rotateY(ai.crashYaw);
             }
             if (Number.isFinite(ai.driftAngle) && (ai.isDrifting || Math.abs(ai.driftAngle) > 1e-3)) {
-                this._dummy.rotateY(-ai.driftAngle * 0.7);
+                this._dummy.rotateY(ai.driftAngle * 0.7);
             }
             this._dummy.updateMatrix();
             for (const layer of this._instanceLayers) {
