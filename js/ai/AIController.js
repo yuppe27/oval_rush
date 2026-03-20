@@ -851,8 +851,19 @@ export class AIController {
         if (globalCruiseSpeed == null && !ai.completed) {
             return null;
         }
+        // Once the AI has its own stored cruise speed, use it — do NOT
+        // recompute from the player's current speed every frame, as
+        // player speed fluctuations cause AI speed oscillation.
+        if (ai.completed && Number.isFinite(ai.postFinishCruiseSpeed) && ai.postFinishCruiseSpeed > 0) {
+            return ai.postFinishCruiseSpeed;
+        }
         if (globalCruiseSpeed != null) {
-            return this._computePostFinishCruiseSpeed(ai, globalCruiseSpeed);
+            // AI hasn't finished yet but race is in post-finish state
+            // (e.g. player finished first) — compute from global speed
+            const speed = this._computePostFinishCruiseSpeed(ai, globalCruiseSpeed);
+            // Store it so subsequent frames use the stable value
+            ai.postFinishCruiseSpeed = speed;
+            return speed;
         }
         if (!Number.isFinite(ai.postFinishCruiseSpeed) || ai.postFinishCruiseSpeed <= 0) {
             this._enterPostFinishCruise(ai, null);
