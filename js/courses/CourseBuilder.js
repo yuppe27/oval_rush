@@ -1220,9 +1220,9 @@ export class CourseBuilder {
         const roofFloor = 18;
 
         // ── Ridge slabs — full-width, placed ABOVE the tunnel structure ──
-        // These follow the tunnel direction (straight) and overlap generously
+        // Moderate extension beyond portals to avoid blocking entrance view
         const slabCount = 12;
-        const extend = 40;
+        const extend = 18;
         for (let s = -1; s <= slabCount + 1; s++) {
             const t = s / slabCount;
             const pos = firstSp.position.clone()
@@ -1262,13 +1262,13 @@ export class CourseBuilder {
         }
 
         // ── Side walls — fill from road-edge down to water, follow road curve ──
+        // Only within tunnel zone (no extension) to avoid blocking portals
         const wallStep = Math.max(1, Math.floor(indices.length / 20));
-        const extSamples = Math.ceil(indices.length * 0.18);
-        for (let i = -extSamples; i <= indices.length + extSamples; i += wallStep) {
-            const ci = THREE.MathUtils.clamp(i, 0, indices.length - 1);
-            const sp = this.sampledPoints[indices[ci]];
-            const nextCI = THREE.MathUtils.clamp(i + wallStep, 0, indices.length - 1);
-            const nextSp = this.sampledPoints[indices[nextCI]];
+        const portalMargin = Math.ceil(indices.length * 0.08);
+        for (let i = portalMargin; i < indices.length - portalMargin; i += wallStep) {
+            const sp = this.sampledPoints[indices[i]];
+            const nextI = Math.min(i + wallStep, indices.length - 1);
+            const nextSp = this.sampledPoints[indices[nextI]];
             const segD = Math.max(6, sp.position.distanceTo(nextSp.position) + 4);
             const basis = new THREE.Matrix4().makeBasis(
                 sp.right.clone().normalize(),
@@ -1277,7 +1277,7 @@ export class CourseBuilder {
             );
             const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
 
-            const pT = (i + extSamples) / (indices.length + extSamples * 2);
+            const pT = i / indices.length;
             const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
             const outerW = baseRadius * (0.6 + 0.4 * pf);
 
