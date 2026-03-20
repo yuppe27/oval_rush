@@ -78,6 +78,7 @@ export class UIManager {
         this._loadingBar = document.getElementById('loading-bar');
         this._loadingText = document.getElementById('loading-text');
         this._loadingTip = document.getElementById('loading-tip');
+        this._gameCurtain = document.getElementById('game-curtain');
 
         this._currentScreen = 'loading';
         this._gameActive = false;
@@ -156,13 +157,31 @@ export class UIManager {
         const advance = () => {
             if (step >= steps.length) {
                 setTimeout(() => {
+                    // 1. 黒幕を即座に不透明で表示（ローディング画面の下に敷く）
+                    this._gameCurtain.classList.remove('fade-out');
+                    this._gameCurtain.style.display = 'block';
+                    this._gameCurtain.style.opacity = '1';
+                    this._currentScreen = 'game';
+                    this._gameActive = true;
+
+                    // 2. ローディング画面を即座に非表示（黒幕が背後にあるので安全）
+                    this._loadingScreen.style.display = 'none';
                     this._loadingScreen.classList.add('hidden');
-                    setTimeout(() => {
-                        this._loadingScreen.style.display = 'none';
-                        this._currentScreen = 'game';
-                        this._gameActive = true;
-                        if (callback) callback();
-                    }, 400);
+
+                    // 3. ゲーム初期化（黒幕の裏で実行）
+                    if (callback) callback();
+
+                    // 4. 数フレーム待ってレンダリングを安定させてから黒幕をフェードアウト
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                                this._gameCurtain.style.opacity = '0';
+                                setTimeout(() => {
+                                    this._gameCurtain.style.display = 'none';
+                                }, 700);
+                            });
+                        });
+                    });
                 }, 200);
                 return;
             }
