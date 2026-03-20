@@ -23,10 +23,13 @@ export class CourseBuilder {
         this._jumbotronCtx = null;
         this._jumbotronTexture = null;
         this._curveSignTextureCache = new Map();
+        /** Meshes that can occlude the chase camera (tunnel ceilings, overburden, etc.) */
+        this.cameraOccluders = [];
     }
 
     build(courseData) {
         this.group.clear();
+        this.cameraOccluders = [];
         this.courseData = courseData;
         const points = courseData.controlPoints.map(
             cp => new THREE.Vector3(cp.x, cp.y, cp.z)
@@ -44,6 +47,13 @@ export class CourseBuilder {
         this._buildScenery(courseData);
 
         return this.group;
+    }
+
+    /** Add mesh to scene and register it as a camera occluder */
+    _addOccluder(mesh) {
+        mesh.layers.enable(1);
+        this.group.add(mesh);
+        this.cameraOccluders.push(mesh);
     }
 
     // ─── Spline sampling ───────────────────────────────────────────────────────
@@ -1237,7 +1247,7 @@ export class CourseBuilder {
             slab.lookAt(pos.x + tunnelDir.x, slabY, pos.z + tunnelDir.z);
             slab.castShadow = true;
             slab.receiveShadow = true;
-            this.group.add(slab);
+            this._addOccluder(slab);
 
             // Grass top
             const grassTop = new THREE.Mesh(
@@ -1466,7 +1476,7 @@ export class CourseBuilder {
             ceiling.position.copy(sp.position).addScaledVector(sp.up, shoulderRise + 1.15);
             ceiling.quaternion.copy(archQuat);
             ceiling.castShadow = true;
-            this.group.add(ceiling);
+            this._addOccluder(ceiling);
 
             const overburden = new THREE.Mesh(
                 new THREE.BoxGeometry(outerRockWidth, 11.5, segmentLength + 2.8),
@@ -1476,7 +1486,7 @@ export class CourseBuilder {
             overburden.quaternion.copy(archQuat);
             overburden.castShadow = true;
             overburden.receiveShadow = true;
-            this.group.add(overburden);
+            this._addOccluder(overburden);
 
             const canopy = new THREE.Mesh(
                 new THREE.BoxGeometry(sp.width + 8, 3.4, segmentLength + 1.2),
@@ -1486,7 +1496,7 @@ export class CourseBuilder {
             canopy.quaternion.copy(archQuat);
             canopy.castShadow = true;
             canopy.receiveShadow = true;
-            this.group.add(canopy);
+            this._addOccluder(canopy);
 
             const lamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.22, 1.1), lightMat);
             lamp.position.copy(sp.position).addScaledVector(sp.up, shoulderRise - 0.2);
@@ -1510,7 +1520,8 @@ export class CourseBuilder {
             { x: 0, y: 6.0, w: sp.width + portalClearance * 2 + 2.2, h: 2.2 },
         ];
 
-        for (const piece of pieces) {
+        for (let pi = 0; pi < pieces.length; pi++) {
+            const piece = pieces[pi];
             const mesh = new THREE.Mesh(
                 new THREE.BoxGeometry(piece.w, piece.h, 2.2),
                 material
@@ -1521,7 +1532,12 @@ export class CourseBuilder {
             mesh.quaternion.copy(quat);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            this.group.add(mesh);
+            // Lintel (top piece) can occlude the camera
+            if (pi === 2) {
+                this._addOccluder(mesh);
+            } else {
+                this.group.add(mesh);
+            }
         }
 
         const portalRockMat = new THREE.MeshStandardMaterial({ color: 0x776b60, roughness: 0.98 });

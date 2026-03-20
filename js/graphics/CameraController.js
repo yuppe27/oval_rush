@@ -27,8 +27,23 @@ export class CameraController {
         this.mode = 'chase'; // chase | bumper | overhead
         this.modeOrder = ['chase', 'bumper', 'overhead'];
 
+        // Obstacle avoidance via raycasting (layer 1 = camera-occluding structures)
+        this._occluders = [];
+        this._raycaster = new THREE.Raycaster();
+        this._raycaster.near = 0.5;
+        this._raycaster.layers.set(1);
+        this._rayDir = new THREE.Vector3();
+
         this._handleResize = () => this._onResize();
         window.addEventListener('resize', this._handleResize);
+    }
+
+    /**
+     * Register meshes that can occlude the camera (tunnels, mountains, etc.).
+     * These must have layers.enable(1) set.
+     */
+    setOccluders(meshes) {
+        this._occluders = meshes;
     }
 
     cycleMode() {
@@ -70,8 +85,11 @@ export class CameraController {
 
         const { targetPos, targetLookAt } = this._getModeTargets(vehicle, this._lateralOffset);
 
-        // Keep a fixed camera distance to avoid the car appearing smaller at high speed.
-        this._smoothPosition.copy(targetPos);
+        // Obstacle avoidance: cast ray from car to ideal camera position.
+        // If blocked, pull camera closer to car.
+        const adjustedPos = this._avoidObstacles(vehicle.position, targetPos);
+
+        this._smoothPosition.copy(adjustedPos);
         this._smoothLookAt.copy(targetLookAt);
         this._initialized = true;
 
@@ -299,6 +317,30 @@ export class CameraController {
         this.camera.lookAt(targetLookAt);
         this.camera.fov = CAMERA_BASE_FOV;
         this.camera.updateProjectionMatrix();
+    }
+
+    /**
+     * Cast a ray from the vehicle toward the ideal camera position.
+     * If a registered occluder is hit, pull the camera closer to the car.
+     */
+    _avoidObstacles(vehiclePos, idealCamPos) {
+        if (!this._occluders || this._occluders.length === 0) return idealCamPos;
+
+        const origin = new THREE.Vector3(vehiclePos.x, vehiclePos.y + 1.2, vehiclePos.z);
+        this._rayDir.subVectors(idealCamPos, origin);
+        const fullDist = this._rayDir.length();
+        if (fullDist < 0.1) return idealCamPos;
+        this._rayDir.normalize();
+
+        this._raycaster.set(origin, this._rayDir);
+        this._raycaster.far = fullDist;
+
+        const hits = this._raycaster.intersectObjects(this._occluders, false);
+        if (hits.length > 0) {
+            const safeDist = Math.max(1.5, hits[0].distance - 0.5);
+            return origin.clone().addScaledVector(this._rayDir, safeDist);
+        }
+        return idealCamPos;
     }
 
     _onResize() {

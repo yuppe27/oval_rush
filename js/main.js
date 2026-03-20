@@ -55,6 +55,7 @@ class Game {
         this.courseBuilder = new CourseBuilder();
         this.courseBuilder.build(this.courseData);
         this.courseBuilder.addToScene(this.renderer.scene);
+        this.cameraController.setOccluders(this.courseBuilder.cameraOccluders);
 
         this.raceCourseData = this._buildRaceCourseConfig(
             this.courseData,
@@ -573,6 +574,7 @@ class TitleDemo {
         this.courseBuilder = new CourseBuilder();
         this.courseBuilder.build(this.courseData);
         this.courseBuilder.addToScene(this.renderer.scene);
+        this.cameraController.setOccluders(this.courseBuilder.cameraOccluders);
 
         const vehiclePreset = resolveVehiclePreset(options.vehicleId || 'falcon');
         this.player = new PlayerVehicle({
