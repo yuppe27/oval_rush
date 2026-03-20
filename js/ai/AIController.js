@@ -734,17 +734,23 @@ export class AIController {
                 ai.lastRubberBand = 1.0;
                 ai.lastDesiredSpeed = ai.targetSpeed;
             } else if (postFinishCruiseSpeed !== null) {
-                ai.isDrifting = false;
-                ai.driftStrength = 0;
-                ai.driftAngle = 0;
-                ai.driftHoldTimer = 0;
+                // drift state already decayed in the block above (line 708-712);
+                // do NOT reset driftAngle to 0 here — let the exponential decay run
+                // Per-car cruise speed: scale by paceFactor to keep natural variation
+                const paceNorm = THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1);
+                const carCruiseSpeed = postFinishCruiseSpeed * THREE.MathUtils.lerp(0.88, 1.06, paceNorm);
                 // Smooth dt-dependent damping — bypass gear/brake/accel system
                 const cruiseLerp = 1 - Math.exp(-2.5 * dt);
-                ai.speed = THREE.MathUtils.lerp(ai.speed, postFinishCruiseSpeed, cruiseLerp);
+                ai.speed = THREE.MathUtils.lerp(ai.speed, carCruiseSpeed, cruiseLerp);
                 ai.targetSpeed = ai.speed;
-                ai.lastWaypointSpeed = postFinishCruiseSpeed;
+                ai.lastWaypointSpeed = carCruiseSpeed;
                 ai.lastRubberBand = 1.0;
                 ai.lastDesiredSpeed = ai.speed;
+                // Gradually return lane offset to a natural cruise position
+                const neutralLane = ai.preferredLaneBias * 1.2;
+                const laneLerp = 1 - Math.exp(-1.5 * dt);
+                ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, neutralLane, laneLerp);
+                ai.laneTarget = ai.laneOffset;
             } else {
                 const driftPenalty = ai.isDrifting
                     ? THREE.MathUtils.lerp(1.0, this.tuning.drift.cornerSpeedPenalty, ai.driftStrength)
