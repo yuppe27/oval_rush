@@ -1262,11 +1262,11 @@ export class CourseBuilder {
             this.group.add(grassTop);
         }
 
-        // ── Side walls — fill from road-edge down to water, follow road curve ──
-        // Only within tunnel zone (no extension) to avoid blocking portals
+        // ── Side walls — fill from slope top down to water, follow road curve ──
+        // Placed across the full tunnel zone. Near portals the inner edge widens
+        // outward to avoid road intrusion on curved sections.
         const wallStep = Math.max(1, Math.floor(indices.length / 20));
-        const portalMargin = Math.ceil(indices.length * 0.15);
-        for (let i = portalMargin; i < indices.length - portalMargin; i += wallStep) {
+        for (let i = 0; i < indices.length; i += wallStep) {
             const sp = this.sampledPoints[indices[i]];
             const nextI = Math.min(i + wallStep, indices.length - 1);
             const nextSp = this.sampledPoints[indices[nextI]];
@@ -1282,11 +1282,13 @@ export class CourseBuilder {
             const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
             const outerW = baseRadius * (0.6 + 0.4 * pf);
 
-            // Tunnel structure extends ±23 from center; wide clearance for curved roads
-            const innerEdge = 30;
+            // Near portals (pf < 0.5), push inner edge further out to avoid road.
+            // Center of tunnel (pf ≈ 1.0) uses tight clearance.
+            const portalSafety = THREE.MathUtils.clamp(1 - pf * 2, 0, 1);
+            const innerEdge = 30 + portalSafety * 18;
             const wallWidth = outerW - innerEdge;
-            if (wallWidth < 3) continue;
-            // Wall height: from below road (water = -3.5) up to roofFloor
+            if (wallWidth < 2) continue;
+            // Wall height: from water level up to roofFloor
             const wallBottom = -3.5;
             const wallTop = sp.position.y + roofFloor;
             const wallH = wallTop - wallBottom;
