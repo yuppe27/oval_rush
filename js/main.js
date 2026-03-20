@@ -26,6 +26,7 @@ import {
 class Game {
     constructor(launchOptions = {}, audioManager = null) {
         const canvas = document.getElementById('gameCanvas');
+        const params = new URLSearchParams(window.location.search);
         this.audio = audioManager || new AudioManager();
         this.mode = (launchOptions.mode || 'arcade').toLowerCase();
         this._courseId = (launchOptions.courseId || 'thunder').toLowerCase();
@@ -36,6 +37,12 @@ class Game {
         this._resultKeyHandler = null;
         this._pauseAvailability = true;
         this._pendingRollingStartLaunch = false;
+        this._debugUnlocked = Boolean(launchOptions.debugUnlocked || params.get('debug') === '1');
+        this._debugActive = false;
+        this._debugWireframe = false;
+        this._debugFocus = 'vehicle';
+        this._debugSceneState = null;
+        this._debugPreviousCameraMode = 'chase';
         this.audio.setRaceMusicTrack(this._courseId);
 
         this.renderer = new Renderer(canvas, { quality: this._quality });
@@ -81,7 +88,6 @@ class Game {
         };
         this.raceManager.onTimeUp = () => this.audio.playTimeUp();
 
-        const params = new URLSearchParams(window.location.search);
         const aiDebug = params.get('aiDebug') === '1';
         this._finishTest = params.get('finishTest') === '1' && this.mode === 'arcade';
         const aiCount = this.raceCourseData.aiEnabled ? Math.max(0, this.raceCourseData.gridSize - 1) : 0;
@@ -116,7 +122,7 @@ class Game {
 
     _setupLoop() {
         this.gameLoop.onFixedUpdate((dt) => {
-            if (this._paused) return;
+            if (this._paused || this._debugActive) return;
             this.slipstreamSystem.update(dt, this.player, this.aiController, this.raceManager.state);
             this.player.fixedUpdate(dt, this.input);
             this.raceManager.update(dt, this.player);
@@ -141,7 +147,9 @@ class Game {
         this.gameLoop.onRender((dt, alpha, rawDt) => {
             this.input.update();
             this._syncPauseAvailability();
-            if (this.input.consumePause() && this._pauseAvailability) {
+            this._processDebugInput();
+
+            if (!this._debugActive && this.input.consumePause() && this._pauseAvailability) {
                 if (this._onPauseToggle) this._onPauseToggle();
             }
 
@@ -150,6 +158,19 @@ class Game {
                 return;
             }
 
+            if (this._debugActive) {
+                const pPos = this.player.position;
+                this.renderer.dirLight.position.set(pPos.x + 50, 80, pPos.z + 30);
+                this.renderer.dirLight.target.position.copy(pPos);
+                this.renderer.dirLight.target.updateMatrixWorld();
+                this.cameraController.updateDebug(rawDt, this.input);
+                this._updateDebugPanel();
+                this.renderer.updateSky(this.cameraController.camera);
+                this.renderer.render(this.cameraController.camera);
+                return;
+            }
+
+            this.hud.setDebugPanel(false);
             if (this.input.consumeCameraSwitch()) {
                 this.cameraController.cycleMode();
             }
@@ -262,6 +283,9 @@ class Game {
     }
 
     setPaused(paused) {
+        if (paused && this._debugActive) {
+            this._setDebugMode(false);
+        }
         this._paused = paused;
     }
 
@@ -272,6 +296,7 @@ class Game {
     }
 
     retry() {
+        this._setDebugMode(false);
         this._retryListenerAdded = false;
         this._pendingRollingStartLaunch = false;
         if (this._resultKeyHandler) {
@@ -295,6 +320,7 @@ class Game {
 
     destroy() {
         this.gameLoop.stop();
+        this._setDebugMode(false);
         this.hud.reset();
         this.podiumFX.reset();
         if (this._resultKeyHandler) {
@@ -511,6 +537,144 @@ class Game {
         this.renderer.scene.fog.far = THREE.MathUtils.lerp(this.renderer.scene.fog.far, fogFarTarget, dt * 2.5);
     }
 
+    _processDebugInput() {
+        if (!this._debugUnlocked || this._paused) {
+            this.input.consumeDebugToggle();
+            this.input.consumeDebugFocus();
+            this.input.consumeDebugWireframe();
+            this.input.consumeDebugReset();
+            return;
+        }
+
+        if (this.input.consumeDebugToggle()) {
+            this._setDebugMode(!this._debugActive);
+        }
+
+        if (!this._debugActive) {
+            this.input.consumeDebugFocus();
+            this.input.consumeDebugWireframe();
+            this.input.consumeDebugReset();
+            return;
+        }
+
+        if (this.input.consumeDebugFocus()) {
+            this._debugFocus = this._debugFocus === 'vehicle' ? 'course' : 'vehicle';
+            this._resetDebugCamera();
+        }
+        if (this.input.consumeDebugWireframe()) {
+            this._debugWireframe = !this._debugWireframe;
+            this._applyDebugWireframe();
+        }
+        if (this.input.consumeDebugReset()) {
+            this._resetDebugCamera();
+        }
+    }
+
+    _setDebugMode(active) {
+        if (active && !this._debugUnlocked) return;
+        if (this._debugActive === active) return;
+
+        this._debugActive = active;
+        if (active) {
+            this._debugPreviousCameraMode = this.cameraController.mode;
+            this._debugFocus = 'vehicle';
+            this._debugWireframe = true;
+            this._applyDebugSceneState(true);
+            this._applyDebugWireframe();
+            this._resetDebugCamera();
+            return;
+        }
+
+        this._debugWireframe = false;
+        this._applyDebugWireframe();
+        this._applyDebugSceneState(false);
+        this.cameraController.setDebugActive(false);
+        this.cameraController.snapToMode(this.player, this._debugPreviousCameraMode || 'chase');
+        this.hud.setDebugPanel(false);
+    }
+
+    _applyDebugSceneState(active) {
+        if (active) {
+            if (!this._debugSceneState) {
+                this._debugSceneState = {
+                    ambient: this.renderer.ambientLight.intensity,
+                    directional: this.renderer.dirLight.intensity,
+                    fogNear: this.renderer.scene.fog?.near ?? 0,
+                    fogFar: this.renderer.scene.fog?.far ?? 0,
+                    aiVisible: (this.aiController?._instanceLayers || []).some((layer) => layer.visible !== false),
+                };
+            }
+            this.renderer.ambientLight.intensity = Math.max(this.renderer.ambientLight.intensity, 0.92);
+            this.renderer.dirLight.intensity = Math.max(this.renderer.dirLight.intensity, 1.1);
+            if (this.renderer.scene.fog) {
+                this.renderer.scene.fog.near = 1400;
+                this.renderer.scene.fog.far = 3200;
+            }
+            this._setAIVisible(false);
+            return;
+        }
+
+        if (!this._debugSceneState) return;
+        this.renderer.ambientLight.intensity = this._debugSceneState.ambient;
+        this.renderer.dirLight.intensity = this._debugSceneState.directional;
+        if (this.renderer.scene.fog) {
+            this.renderer.scene.fog.near = this._debugSceneState.fogNear;
+            this.renderer.scene.fog.far = this._debugSceneState.fogFar;
+        }
+        this._setAIVisible(this._debugSceneState.aiVisible);
+        this._debugSceneState = null;
+    }
+
+    _setAIVisible(visible) {
+        for (const layer of this.aiController?._instanceLayers || []) {
+            layer.visible = visible;
+        }
+    }
+
+    _applyDebugWireframe() {
+        this.courseBuilder.setDebugWireframe(this._debugWireframe);
+        this.player.model.setDebugWireframe(this._debugWireframe);
+    }
+
+    _resetDebugCamera() {
+        const target = this._getDebugFocusTarget();
+        if (this._debugFocus === 'vehicle') {
+            this.cameraController.setDebugActive(true, {
+                target,
+                distance: 8.5,
+                yaw: this.player.rotation + Math.PI + 0.48,
+                pitch: 0.3,
+            });
+            return;
+        }
+
+        this.cameraController.setDebugActive(true, {
+            target,
+            distance: THREE.MathUtils.clamp(this.courseBuilder.courseLength * 0.035, 78, 190),
+            yaw: -0.72,
+            pitch: 0.6,
+        });
+    }
+
+    _getDebugFocusTarget() {
+        if (this._debugFocus === 'vehicle') {
+            return this.player.position.clone().add(new THREE.Vector3(0, 1.15, 0));
+        }
+        return this.courseBuilder.getDebugFocusPoint();
+    }
+
+    _updateDebugPanel() {
+        const cam = this.cameraController.camera.position;
+        this.hud.setDebugPanel(true, [
+            'DEBUG INSPECTOR',
+            `FOCUS ${this._debugFocus === 'vehicle' ? 'PLAYER MODEL' : 'COURSE OVERVIEW'}`,
+            `WIREFRAME ${this._debugWireframe ? 'ON' : 'OFF'}`,
+            `CAM ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}`,
+            'F1 EXIT  F2 FOCUS  F3 WIREFRAME  F4 RESET',
+            'LMB ORBIT  W A S D PAN  Q/E UP-DOWN  WHEEL ZOOM',
+        ]);
+    }
+
     _buildRaceCourseConfig(baseCourse, difficulty = 'NORMAL', courseLength = 2500, maxSpeedMs = 77.8, mode = 'arcade') {
         if (mode === 'time_attack') {
             return {
@@ -707,7 +871,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     function launchGame(options) {
         destroyGame();
-        currentGame = new Game(options, audio);
+        currentGame = new Game({ ...options, debugUnlocked: ui.isDebugUnlocked() }, audio);
         ui.setLastRaceContext(options.courseId, options.difficulty);
         ui.showGame();
         ui.setPauseAvailable(true);

@@ -40,6 +40,19 @@ const MODE_INFO = {
     free_run: 'Unlimited practice / no timer / no rivals',
 };
 
+const HIDDEN_DEBUG_SEQUENCE = [
+    'ArrowUp',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowLeft',
+    'ArrowRight',
+    'KeyB',
+    'KeyA',
+];
+
 export class UIManager {
     constructor(audioManager) {
         this.audio = audioManager;
@@ -87,6 +100,8 @@ export class UIManager {
         this._previousScreen = 'title';
         this._lastCourseId = '';
         this._lastDifficulty = '';
+        this._debugUnlocked = new URLSearchParams(window.location.search).get('debug') === '1';
+        this._debugSequenceIndex = 0;
 
         this._loadSavedSelections();
         this._loadOptions();
@@ -247,6 +262,10 @@ export class UIManager {
 
     getOptions() {
         return { ...this._options };
+    }
+
+    isDebugUnlocked() {
+        return this._debugUnlocked;
     }
 
     setLastRaceContext(courseId, difficulty) {
@@ -492,6 +511,25 @@ export class UIManager {
         }
     }
 
+    _advanceHiddenDebugSequence(code) {
+        if (this._currentScreen === 'game' || this._currentScreen === 'pause' || this._currentScreen === 'loading') {
+            this._debugSequenceIndex = 0;
+            return;
+        }
+
+        const expected = HIDDEN_DEBUG_SEQUENCE[this._debugSequenceIndex];
+        if (code === expected) {
+            this._debugSequenceIndex += 1;
+            if (this._debugSequenceIndex >= HIDDEN_DEBUG_SEQUENCE.length) {
+                this._debugUnlocked = true;
+                this._debugSequenceIndex = 0;
+            }
+            return;
+        }
+
+        this._debugSequenceIndex = code === HIDDEN_DEBUG_SEQUENCE[0] ? 1 : 0;
+    }
+
 
     _bindEvents() {
         this._titleScreen.addEventListener('click', (e) => {
@@ -596,6 +634,7 @@ export class UIManager {
         });
 
         window.addEventListener('keydown', (e) => {
+            this._advanceHiddenDebugSequence(e.code);
             if (e.code !== 'Escape') return;
             if (this._pauseActive) {
                 this.hidePause();

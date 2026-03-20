@@ -8,6 +8,8 @@ const GAME_KEYS = new Set([
     'KeyZ', 'KeyX', 'KeyC', 'Space',
 ]);
 
+const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4']);
+
 export class InputManager {
     constructor() {
         this._listeners = [];
@@ -17,6 +19,10 @@ export class InputManager {
         this._shiftUpRequested = false;
         this._shiftDownRequested = false;
         this._pauseRequested = false;
+        this._debugToggleRequested = false;
+        this._debugFocusRequested = false;
+        this._debugWireframeRequested = false;
+        this._debugResetRequested = false;
 
         this._gpPrevButtons = {};
 
@@ -37,8 +43,12 @@ export class InputManager {
                 if (e.code === 'KeyC') this._cameraSwitchRequested = true;
                 if (e.code === 'KeyZ') this._shiftUpRequested = true;
                 if (e.code === 'KeyX') this._shiftDownRequested = true;
+                if (e.code === 'F1') this._debugToggleRequested = true;
+                if (e.code === 'F2') this._debugFocusRequested = true;
+                if (e.code === 'F3') this._debugWireframeRequested = true;
+                if (e.code === 'F4') this._debugResetRequested = true;
             }
-            if (GAME_KEYS.has(e.code)) {
+            if (GAME_KEYS.has(e.code) || DEBUG_KEYS.has(e.code)) {
                 e.preventDefault();
             }
         };
@@ -51,6 +61,10 @@ export class InputManager {
             this._shiftUpRequested = false;
             this._shiftDownRequested = false;
             this._pauseRequested = false;
+            this._debugToggleRequested = false;
+            this._debugFocusRequested = false;
+            this._debugWireframeRequested = false;
+            this._debugResetRequested = false;
         };
         this._handleStorage = (e) => {
             if (e.key !== OPTIONS_KEY) return;
@@ -129,6 +143,38 @@ export class InputManager {
         const value = this._pauseRequested;
         this._pauseRequested = false;
         return value;
+    }
+
+    consumeDebugToggle() {
+        const value = this._debugToggleRequested;
+        this._debugToggleRequested = false;
+        return value;
+    }
+
+    consumeDebugFocus() {
+        const value = this._debugFocusRequested;
+        this._debugFocusRequested = false;
+        return value;
+    }
+
+    consumeDebugWireframe() {
+        const value = this._debugWireframeRequested;
+        this._debugWireframeRequested = false;
+        return value;
+    }
+
+    consumeDebugReset() {
+        const value = this._debugResetRequested;
+        this._debugResetRequested = false;
+        return value;
+    }
+
+    getDebugCameraInput() {
+        const forward = (this.keys['KeyW'] ? 1 : 0) - (this.keys['KeyS'] ? 1 : 0);
+        const right = (this.keys['KeyD'] ? 1 : 0) - (this.keys['KeyA'] ? 1 : 0);
+        const vertical = (this.keys['KeyE'] ? 1 : 0) - (this.keys['KeyQ'] ? 1 : 0);
+        const fast = Boolean(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+        return { forward, right, vertical, fast };
     }
 
     getSteeringInput() {

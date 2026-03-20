@@ -748,6 +748,25 @@ body {
     margin-top: 4px;
 }
 
+#hud-debug-panel {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    display: none;
+    max-width: min(40vw, 480px);
+    padding: 14px 16px;
+    border: 1px solid rgba(120, 234, 255, 0.34);
+    background: rgba(5, 14, 22, 0.76);
+    color: #b7f5ff;
+    font-size: 13px;
+    line-height: 1.55;
+    letter-spacing: 0.4px;
+    white-space: pre-line;
+    text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(8px);
+}
+
 /* ═══════════════════════════════════════════════════
    COUNTDOWN
    ═══════════════════════════════════════════════════ */

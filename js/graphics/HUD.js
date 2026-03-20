@@ -10,6 +10,7 @@ export class HUD {
         // Speed / gear (bottom-left)
         this.speedEl = document.getElementById('hud-speed');
         this.gearEl = document.getElementById('hud-gear');
+        this.debugEl = document.getElementById('hud-debug-panel');
         // Lap (top-left)
         this.lapEl = document.getElementById('hud-lap');
         this.positionEl = document.getElementById('hud-position');
@@ -335,6 +336,17 @@ export class HUD {
         return document.getElementById('btn-retry');
     }
 
+    setDebugPanel(active, lines = []) {
+        if (!this.debugEl) return;
+        if (!active) {
+            this.debugEl.style.display = 'none';
+            this.debugEl.textContent = '';
+            return;
+        }
+        this.debugEl.textContent = lines.join('\n');
+        this.debugEl.style.display = 'block';
+    }
+
     reset() {
         this.lapEl.style.display = 'none';
         this.positionEl.style.display = 'none';
@@ -348,6 +360,7 @@ export class HUD {
         this.notifyEl.style.display = 'none';
         this.notifyEl.classList.remove('notify-rolling-start');
         this.hideResult();
+        this.setDebugPanel(false);
         this._prevCountdown = null;
         this._blinkOn = false;
         this._blinkTimer = 0;

@@ -2540,4 +2540,45 @@ export class CourseBuilder {
     addToScene(scene) {
         scene.add(this.group);
     }
+
+    setDebugWireframe(enabled) {
+        this.group.traverse((obj) => {
+            if (!obj.isMesh) return;
+            const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (const material of materials) {
+                if (!material || !('wireframe' in material)) continue;
+                if (enabled) {
+                    if (!material.userData.__debugWireframeState) {
+                        material.userData.__debugWireframeState = {
+                            wireframe: material.wireframe,
+                            transparent: material.transparent,
+                            opacity: material.opacity,
+                        };
+                    }
+                    material.wireframe = true;
+                    material.transparent = true;
+                    material.opacity = Math.min(material.opacity ?? 1, 0.88);
+                } else if (material.userData.__debugWireframeState) {
+                    const state = material.userData.__debugWireframeState;
+                    material.wireframe = state.wireframe;
+                    material.transparent = state.transparent;
+                    material.opacity = state.opacity;
+                    delete material.userData.__debugWireframeState;
+                }
+                material.needsUpdate = true;
+            }
+        });
+    }
+
+    getDebugFocusPoint() {
+        if (!this.sampledPoints.length) {
+            return new THREE.Vector3();
+        }
+        const center = new THREE.Vector3();
+        for (const sp of this.sampledPoints) {
+            center.add(sp.position);
+        }
+        center.multiplyScalar(1 / this.sampledPoints.length);
+        return center;
+    }
 }

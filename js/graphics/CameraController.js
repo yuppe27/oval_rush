@@ -34,8 +34,29 @@ export class CameraController {
         this._raycaster.layers.set(1);
         this._rayDir = new THREE.Vector3();
 
+        this.debugActive = false;
+        this._debugTarget = new THREE.Vector3();
+        this._debugPanForward = new THREE.Vector3();
+        this._debugPanRight = new THREE.Vector3();
+        this._debugOffset = new THREE.Vector3();
+        this._debugYaw = 0;
+        this._debugPitch = 0.35;
+        this._debugDistance = 18;
+        this._debugDragActive = false;
+        this._debugPointerDelta = new THREE.Vector2();
+        this._debugWheelDelta = 0;
+        this._canvas = document.getElementById('gameCanvas');
+
         this._handleResize = () => this._onResize();
+        this._handlePointerDown = (event) => this._onPointerDown(event);
+        this._handlePointerMove = (event) => this._onPointerMove(event);
+        this._handlePointerUp = () => this._onPointerUp();
+        this._handleWheel = (event) => this._onWheel(event);
         window.addEventListener('resize', this._handleResize);
+        window.addEventListener('pointerdown', this._handlePointerDown);
+        window.addEventListener('pointermove', this._handlePointerMove);
+        window.addEventListener('pointerup', this._handlePointerUp);
+        window.addEventListener('wheel', this._handleWheel, { passive: false });
     }
 
     /**
@@ -51,6 +72,99 @@ export class CameraController {
         const nextIdx = idx >= 0 ? (idx + 1) % this.modeOrder.length : 0;
         this.mode = this.modeOrder[nextIdx];
         this._initialized = false;
+    }
+
+    resetToChase(vehicle) {
+        this.mode = 'chase';
+        this._snapToChase(vehicle);
+    }
+
+    snapToMode(vehicle, mode = this.mode) {
+        this.mode = mode;
+        const { targetPos, targetLookAt } = this._getModeTargets(vehicle, 0);
+        this._smoothPosition.copy(targetPos);
+        this._smoothLookAt.copy(targetLookAt);
+        this._lateralOffset = 0;
+        this._initialized = true;
+        this.camera.position.copy(targetPos);
+        this.camera.lookAt(targetLookAt);
+        this.camera.fov = mode === 'bumper' ? 90 : (mode === 'overhead' ? 60 : CAMERA_BASE_FOV);
+        this.camera.updateProjectionMatrix();
+    }
+
+    setDebugActive(active, options = {}) {
+        this.debugActive = active;
+        this._debugDragActive = false;
+        this._debugPointerDelta.set(0, 0);
+        this._debugWheelDelta = 0;
+
+        if (!this._canvas) return;
+
+        if (!active) {
+            this._canvas.style.cursor = '';
+            return;
+        }
+
+        const target = options.target || this._debugTarget;
+        this._syncDebugOrbitFromCamera(target);
+        this._debugTarget.copy(target);
+        if (Number.isFinite(options.distance)) this._debugDistance = options.distance;
+        if (Number.isFinite(options.yaw)) this._debugYaw = options.yaw;
+        if (Number.isFinite(options.pitch)) this._debugPitch = options.pitch;
+        this._debugPitch = THREE.MathUtils.clamp(this._debugPitch, -1.35, 1.35);
+        this._debugDistance = THREE.MathUtils.clamp(this._debugDistance, 2.5, 480);
+        this._canvas.style.cursor = 'grab';
+    }
+
+    updateDebug(dt, input) {
+        const move = input?.getDebugCameraInput?.() || { forward: 0, right: 0, vertical: 0, fast: false };
+        const panSpeed = move.fast ? 48 : 22;
+
+        if (move.forward || move.right || move.vertical) {
+            this._debugPanForward.copy(this._debugTarget).sub(this.camera.position);
+            this._debugPanForward.y = 0;
+            if (this._debugPanForward.lengthSq() < 1e-6) {
+                this._debugPanForward.set(Math.sin(this._debugYaw), 0, Math.cos(this._debugYaw));
+            }
+            this._debugPanForward.normalize();
+            this._debugPanRight.crossVectors(new THREE.Vector3(0, 1, 0), this._debugPanForward);
+            this._debugPanRight.normalize();
+
+            this._debugTarget.addScaledVector(this._debugPanForward, move.forward * panSpeed * dt);
+            this._debugTarget.addScaledVector(this._debugPanRight, move.right * panSpeed * dt);
+            this._debugTarget.y += move.vertical * panSpeed * dt;
+        }
+
+        if (this._debugPointerDelta.lengthSq() > 0) {
+            this._debugYaw -= this._debugPointerDelta.x * 0.0055;
+            this._debugPitch = THREE.MathUtils.clamp(
+                this._debugPitch - this._debugPointerDelta.y * 0.0045,
+                -1.35,
+                1.35
+            );
+            this._debugPointerDelta.set(0, 0);
+        }
+
+        if (this._debugWheelDelta !== 0) {
+            this._debugDistance = THREE.MathUtils.clamp(
+                this._debugDistance * Math.exp(this._debugWheelDelta * 0.0011),
+                2.5,
+                480
+            );
+            this._debugWheelDelta = 0;
+        }
+
+        const horizontal = Math.cos(this._debugPitch) * this._debugDistance;
+        this._debugOffset.set(
+            Math.sin(this._debugYaw) * horizontal,
+            Math.sin(this._debugPitch) * this._debugDistance,
+            Math.cos(this._debugYaw) * horizontal
+        );
+
+        this.camera.position.copy(this._debugTarget).add(this._debugOffset);
+        this.camera.lookAt(this._debugTarget);
+        this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 68, Math.min(1, dt * 8));
+        this.camera.updateProjectionMatrix();
     }
 
     update(dt, vehicle, race = null) {
@@ -343,6 +457,43 @@ export class CameraController {
         return idealCamPos;
     }
 
+    _syncDebugOrbitFromCamera(target) {
+        this._debugOffset.copy(this.camera.position).sub(target);
+        const distance = this._debugOffset.length();
+        const horizontal = Math.hypot(this._debugOffset.x, this._debugOffset.z);
+        this._debugDistance = Math.max(2.5, distance);
+        this._debugYaw = Math.atan2(this._debugOffset.x, this._debugOffset.z);
+        this._debugPitch = Math.atan2(this._debugOffset.y, Math.max(1e-3, horizontal));
+    }
+
+    _onPointerDown(event) {
+        if (!this.debugActive || event.button !== 0) return;
+        if (this._canvas && event.target !== this._canvas) return;
+        this._debugDragActive = true;
+        this._debugPointerDelta.set(0, 0);
+        if (this._canvas) this._canvas.style.cursor = 'grabbing';
+        event.preventDefault();
+    }
+
+    _onPointerMove(event) {
+        if (!this.debugActive || !this._debugDragActive) return;
+        this._debugPointerDelta.x += event.movementX || 0;
+        this._debugPointerDelta.y += event.movementY || 0;
+    }
+
+    _onPointerUp() {
+        if (!this.debugActive) return;
+        this._debugDragActive = false;
+        if (this._canvas) this._canvas.style.cursor = 'grab';
+    }
+
+    _onWheel(event) {
+        if (!this.debugActive) return;
+        if (this._canvas && event.target !== this._canvas) return;
+        this._debugWheelDelta += event.deltaY;
+        event.preventDefault();
+    }
+
     _onResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
@@ -350,5 +501,10 @@ export class CameraController {
 
     dispose() {
         window.removeEventListener('resize', this._handleResize);
+        window.removeEventListener('pointerdown', this._handlePointerDown);
+        window.removeEventListener('pointermove', this._handlePointerMove);
+        window.removeEventListener('pointerup', this._handlePointerUp);
+        window.removeEventListener('wheel', this._handleWheel, { passive: false });
+        if (this._canvas) this._canvas.style.cursor = '';
     }
 }
