@@ -961,7 +961,6 @@ export class CourseBuilder {
         this._buildSeasideBeach();
         this._buildSeasideTown();
         this._buildSeasideCliffs();
-        this._buildTunnelMountain();
         this._buildSeasideTunnel();
         this._buildLighthouse();
     }
@@ -1218,11 +1217,12 @@ export class CourseBuilder {
         const maxHeight = 52;
         const baseRadius = 48;
         // Overburden top ≈ shoulderRise(4.4) + 7.2 + 11.5/2 = ~17.35
-        // Place mountain body well above tunnel structure to avoid road intrusion
-        const roofFloor = 22;
+        // Place mountain body just above tunnel overburden to close the visual gap
+        // Overburden top ≈ 17.35 — slight overlap is fine since slab is external
+        const roofFloor = 17;
         const waterLevelY = -3.5; // seaside water level
         const baseY = waterLevelY - 1.8; // extend below water so visible skirt meets water line
-        const mountainSides = [-1];
+        const mountainSides = [-1, 1];
         const slabRight = new THREE.Vector3().crossVectors(
             new THREE.Vector3(0, 1, 0),
             tunnelDir
@@ -1230,13 +1230,15 @@ export class CourseBuilder {
         const slabProfiles = [];
 
         // ── Ridge slabs — full-width, placed ABOVE the tunnel structure ──
-        // Moderate extension beyond portals to avoid blocking entrance view
+        // Keep slabs inside tunnel zone so they don't block portal openings
         const slabCount = 12;
-        const extend = 18;
+        const extend = 0;
+        const portalClearance = 22; // min distance from slab edge to portal plane
         for (let s = -1; s <= slabCount + 1; s++) {
             const t = s / slabCount;
+            const posAlongTunnel = tunnelLength * t;
             const pos = firstSp.position.clone()
-                .addScaledVector(tunnelDir, -extend + (tunnelLength + extend * 2) * t);
+                .addScaledVector(tunnelDir, posAlongTunnel);
 
             const profileT = (s + 1) / (slabCount + 2);
             const pf = Math.sin(profileT * Math.PI);
@@ -1246,7 +1248,12 @@ export class CourseBuilder {
 
             if (slabH < 3) continue;
 
-            const segDepth = (tunnelLength + extend * 2) / slabCount + 10;
+            const segDepth = tunnelLength / slabCount + 4;
+
+            // Skip slabs whose geometry extends too close to portal openings
+            const slabFront = posAlongTunnel - segDepth / 2;
+            const slabBack = posAlongTunnel + segDepth / 2;
+            if (slabFront < portalClearance || slabBack > tunnelLength - portalClearance) continue;
 
             // Main rock slab
             const slab = new THREE.Mesh(
@@ -1339,11 +1346,11 @@ export class CourseBuilder {
 
         for (let i = 0; i < slabProfiles.length; i++) {
             const { pos, pf, slabW, slabY, slabH, frameSp } = slabProfiles[i];
-            const outerBias = 20 + pf * 14;
-            const topOff = slabW * 0.5 + 28;
+            const outerBias = 8 + pf * 6;
+            const topOff = slabW * 0.5 + 2;
             const midOff = topOff + outerBias;
-            const lowOff = midOff + 14 + pf * 8;
-            const baseOff = lowOff + 18 + pf * 10;
+            const lowOff = midOff + 10 + pf * 6;
+            const baseOff = lowOff + 14 + pf * 8;
             const shellHalf = (frameSp?.width ?? 0) * 0.5 + 16;
 
             const top = pos.clone().addScaledVector(slabRight, side * topOff);
@@ -1462,8 +1469,6 @@ export class CourseBuilder {
             const endSp = this.sampledPoints[indices[indices.length - 1]];
             this._buildTunnelPortal(startSp, portalMat);
             this._buildTunnelPortal(endSp, portalMat);
-            this._buildTunnelPortalMountainExterior(startSp, -1, rockMat, grassMat);
-            this._buildTunnelPortalMountainExterior(endSp, 1, rockMat, grassMat);
         }
 
         for (let i = 0; i < indices.length; i += segmentStep) {
@@ -1489,6 +1494,10 @@ export class CourseBuilder {
             const outerRockWidth = sp.width + 30;
             const outerRockHeight = 16;
 
+            // Skip heavy outer geometry near portal openings to keep entrances clear
+            const portalMarginSamples = 4;
+            const nearPortal = (i < portalMarginSamples || i > indices.length - 1 - portalMarginSamples);
+
             for (const side of [-1, 1]) {
                 const lowerWall = new THREE.Mesh(
                     new THREE.BoxGeometry(lowerWallThickness, lowerWallHeight, segmentLength),
@@ -1513,17 +1522,19 @@ export class CourseBuilder {
                 shoulder.castShadow = true;
                 this.group.add(shoulder);
 
-                const sideRock = new THREE.Mesh(
-                    new THREE.BoxGeometry(7.2, outerRockHeight, segmentLength + 1.2),
-                    rockMat
-                );
-                sideRock.position.copy(sp.position)
-                    .addScaledVector(sp.right, side * (sp.width * 0.5 + 15.5))
-                    .addScaledVector(sp.up, 7.8);
-                sideRock.quaternion.copy(archQuat);
-                sideRock.castShadow = true;
-                sideRock.receiveShadow = true;
-                this.group.add(sideRock);
+                if (!nearPortal) {
+                    const sideRock = new THREE.Mesh(
+                        new THREE.BoxGeometry(7.2, outerRockHeight, segmentLength + 1.2),
+                        rockMat
+                    );
+                    sideRock.position.copy(sp.position)
+                        .addScaledVector(sp.right, side * (sp.width * 0.5 + 15.5))
+                        .addScaledVector(sp.up, 7.8);
+                    sideRock.quaternion.copy(archQuat);
+                    sideRock.castShadow = true;
+                    sideRock.receiveShadow = true;
+                    this.group.add(sideRock);
+                }
             }
 
             const ceiling = new THREE.Mesh(
@@ -1535,25 +1546,27 @@ export class CourseBuilder {
             ceiling.castShadow = true;
             this._addOccluder(ceiling);
 
-            const overburden = new THREE.Mesh(
-                new THREE.BoxGeometry(outerRockWidth, 11.5, segmentLength + 2.8),
-                rockMat
-            );
-            overburden.position.copy(sp.position).addScaledVector(sp.up, shoulderRise + 7.2);
-            overburden.quaternion.copy(archQuat);
-            overburden.castShadow = true;
-            overburden.receiveShadow = true;
-            this._addOccluder(overburden);
+            if (!nearPortal) {
+                const overburden = new THREE.Mesh(
+                    new THREE.BoxGeometry(outerRockWidth, 11.5, segmentLength + 2.8),
+                    rockMat
+                );
+                overburden.position.copy(sp.position).addScaledVector(sp.up, shoulderRise + 7.2);
+                overburden.quaternion.copy(archQuat);
+                overburden.castShadow = true;
+                overburden.receiveShadow = true;
+                this._addOccluder(overburden);
 
-            const canopy = new THREE.Mesh(
-                new THREE.BoxGeometry(sp.width + 8, 3.4, segmentLength + 1.2),
-                rockMat
-            );
-            canopy.position.copy(sp.position).addScaledVector(sp.up, shoulderRise + 3.4);
-            canopy.quaternion.copy(archQuat);
-            canopy.castShadow = true;
-            canopy.receiveShadow = true;
-            this._addOccluder(canopy);
+                const canopy = new THREE.Mesh(
+                    new THREE.BoxGeometry(sp.width + 8, 3.4, segmentLength + 1.2),
+                    rockMat
+                );
+                canopy.position.copy(sp.position).addScaledVector(sp.up, shoulderRise + 3.4);
+                canopy.quaternion.copy(archQuat);
+                canopy.castShadow = true;
+                canopy.receiveShadow = true;
+                this._addOccluder(canopy);
+            }
 
             const lamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.22, 1.1), lightMat);
             lamp.position.copy(sp.position).addScaledVector(sp.up, shoulderRise - 0.2);
@@ -1571,12 +1584,14 @@ export class CourseBuilder {
         );
         const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
         const portalClearance = 6.2;
+        const pillarX = sp.width * 0.5 + portalClearance;
+
+        // Portal frame: pillars + lintel (defines the opening)
         const pieces = [
-            { x: -(sp.width * 0.5 + portalClearance), y: 2.6, w: 2.4, h: 5.2 },
-            { x: sp.width * 0.5 + portalClearance, y: 2.6, w: 2.4, h: 5.2 },
+            { x: -pillarX, y: 2.6, w: 2.4, h: 5.2 },
+            { x: pillarX, y: 2.6, w: 2.4, h: 5.2 },
             { x: 0, y: 6.0, w: sp.width + portalClearance * 2 + 2.2, h: 2.2 },
         ];
-
         for (let pi = 0; pi < pieces.length; pi++) {
             const piece = pieces[pi];
             const mesh = new THREE.Mesh(
@@ -1589,7 +1604,6 @@ export class CourseBuilder {
             mesh.quaternion.copy(quat);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            // Lintel (top piece) can occlude the camera
             if (pi === 2) {
                 this._addOccluder(mesh);
             } else {
@@ -1597,31 +1611,80 @@ export class CourseBuilder {
             }
         }
 
-        const portalRockMat = new THREE.MeshStandardMaterial({ color: 0x776b60, roughness: 0.98 });
-        const crown = new THREE.Mesh(
-            new THREE.BoxGeometry(sp.width + 22, 10, 7.5),
-            portalRockMat
+        // ── Coastal cliff face ──
+        // All elements placed ABOVE lintel top (y>7.1) or OUTSIDE pillars
+        const cliffMat = new THREE.MeshStandardMaterial({ color: 0x6e6359, roughness: 0.98 });
+        const grassMat = new THREE.MeshStandardMaterial({ color: 0x4d6f3c, roughness: 0.96 });
+        const lintelTop = 7.1;
+        const cliffDepth = 8;
+
+        // Cliff face above the opening
+        const cliffFaceH = 18;
+        const cliffFaceY = lintelTop + cliffFaceH * 0.5;
+        const cliffFace = new THREE.Mesh(
+            new THREE.BoxGeometry(sp.width + 50, cliffFaceH, cliffDepth),
+            cliffMat
         );
-        crown.position.copy(sp.position).addScaledVector(sp.up, 8.8);
-        crown.quaternion.copy(quat);
-        crown.castShadow = true;
-        crown.receiveShadow = true;
-        this.group.add(crown);
+        cliffFace.position.copy(sp.position).addScaledVector(sp.up, cliffFaceY);
+        cliffFace.quaternion.copy(quat);
+        cliffFace.castShadow = true;
+        cliffFace.receiveShadow = true;
+        this.group.add(cliffFace);
 
+        // Grass cap on top of cliff
+        const grassCap = new THREE.Mesh(
+            new THREE.BoxGeometry(sp.width + 54, 1.5, cliffDepth + 2),
+            grassMat
+        );
+        grassCap.position.copy(sp.position).addScaledVector(sp.up, lintelTop + cliffFaceH + 0.5);
+        grassCap.quaternion.copy(quat);
+        grassCap.receiveShadow = true;
+        this.group.add(grassCap);
+
+        // Side buttresses: tall cliff walls flanking the portal (outside the opening)
         for (const side of [-1, 1]) {
-            const embankment = new THREE.Mesh(
-                new THREE.BoxGeometry(12, 14, 7.5),
-                portalRockMat
+            const buttressW = 14;
+            const buttressH = 26;
+            const buttressX = pillarX + buttressW * 0.5 + 1.0;
+            const buttress = new THREE.Mesh(
+                new THREE.BoxGeometry(buttressW, buttressH, cliffDepth),
+                cliffMat
             );
-            embankment.position.copy(sp.position)
-                .addScaledVector(sp.right, side * (sp.width * 0.5 + portalClearance + 4.8))
-                .addScaledVector(sp.up, 6.8);
-            embankment.quaternion.copy(quat);
-            embankment.castShadow = true;
-            embankment.receiveShadow = true;
-            this.group.add(embankment);
-        }
+            buttress.position.copy(sp.position)
+                .addScaledVector(sp.right, side * buttressX)
+                .addScaledVector(sp.up, buttressH * 0.5 - 2);
+            buttress.quaternion.copy(quat);
+            buttress.castShadow = true;
+            buttress.receiveShadow = true;
+            this.group.add(buttress);
 
+            // Grass on top of buttress
+            const bGrass = new THREE.Mesh(
+                new THREE.BoxGeometry(buttressW + 2, 1.2, cliffDepth + 2),
+                grassMat
+            );
+            bGrass.position.copy(sp.position)
+                .addScaledVector(sp.right, side * buttressX)
+                .addScaledVector(sp.up, buttressH - 2 + 0.6);
+            bGrass.quaternion.copy(quat);
+            bGrass.receiveShadow = true;
+            this.group.add(bGrass);
+
+            // Outer slope: wider, lower rock extending outward from buttress
+            const slopeW = 18;
+            const slopeH = 16;
+            const slope = new THREE.Mesh(
+                new THREE.BoxGeometry(slopeW, slopeH, cliffDepth - 1),
+                cliffMat
+            );
+            slope.position.copy(sp.position)
+                .addScaledVector(sp.right, side * (buttressX + buttressW * 0.5 + slopeW * 0.5 - 2))
+                .addScaledVector(sp.up, slopeH * 0.5 - 3);
+            slope.quaternion.copy(quat);
+            slope.castShadow = true;
+            slope.receiveShadow = true;
+            this.group.add(slope);
+        }
     }
 
     _buildTunnelPortalMountainExterior(sp, exteriorSign, rockMat, grassMat) {
@@ -1635,7 +1698,7 @@ export class CourseBuilder {
                 z: portalPlaneGap,
                 landToe: portalHalfWidth + 18,
                 landShoulder: portalHalfWidth + 12,
-                landBaseY: 18.0,
+                landBaseY: 14.0,
                 landShoulderY: 23.5,
                 leftOuterTop: portalHalfWidth + 10,
                 leftOuterTopY: 27.2,
@@ -1649,13 +1712,13 @@ export class CourseBuilder {
                 seaShoulder: portalHalfWidth + 9,
                 seaToe: portalHalfWidth + 14,
                 seaShoulderY: 22.6,
-                seaBaseY: 18.4,
+                seaBaseY: 14.0,
             },
             {
                 z: portalPlaneGap + 16,
                 landToe: portalHalfWidth + 40,
                 landShoulder: portalHalfWidth + 28,
-                landBaseY: 16.0,
+                landBaseY: 0.0,
                 landShoulderY: 26.0,
                 leftOuterTop: portalHalfWidth + 18,
                 leftOuterTopY: 29.4,
@@ -1669,13 +1732,13 @@ export class CourseBuilder {
                 seaShoulder: portalHalfWidth + 16,
                 seaToe: portalHalfWidth + 24,
                 seaShoulderY: 23.4,
-                seaBaseY: 17.6,
+                seaBaseY: 0.0,
             },
             {
                 z: portalPlaneGap + 34,
                 landToe: portalHalfWidth + 76,
                 landShoulder: portalHalfWidth + 54,
-                landBaseY: 15.5,
+                landBaseY: -3.5,
                 landShoulderY: 28.8,
                 leftOuterTop: portalHalfWidth + 30,
                 leftOuterTopY: 31.6,
@@ -1689,13 +1752,13 @@ export class CourseBuilder {
                 seaShoulder: portalHalfWidth + 24,
                 seaToe: portalHalfWidth + 38,
                 seaShoulderY: 20.5,
-                seaBaseY: 15.0,
+                seaBaseY: -3.5,
             },
             {
                 z: portalPlaneGap + 54,
                 landToe: portalHalfWidth + 102,
                 landShoulder: portalHalfWidth + 72,
-                landBaseY: 18.0,
+                landBaseY: -5.0,
                 landShoulderY: 31.2,
                 leftOuterTop: portalHalfWidth + 36,
                 leftOuterTopY: 34.0,
@@ -1709,13 +1772,13 @@ export class CourseBuilder {
                 seaShoulder: portalHalfWidth + 22,
                 seaToe: portalHalfWidth + 38,
                 seaShoulderY: 21.0,
-                seaBaseY: 13.4,
+                seaBaseY: -5.0,
             },
             {
                 z: portalPlaneGap + 76,
                 landToe: portalHalfWidth + 128,
                 landShoulder: portalHalfWidth + 92,
-                landBaseY: 22.5,
+                landBaseY: -5.0,
                 landShoulderY: 34.0,
                 leftOuterTop: portalHalfWidth + 42,
                 leftOuterTopY: 36.4,
@@ -1729,7 +1792,7 @@ export class CourseBuilder {
                 seaShoulder: portalHalfWidth + 26,
                 seaToe: portalHalfWidth + 46,
                 seaShoulderY: 23.5,
-                seaBaseY: 17.2,
+                seaBaseY: -5.0,
             },
         ];
         const profilePointCount = 9;
@@ -1793,9 +1856,7 @@ export class CourseBuilder {
             }
         }
 
-        for (let j = 2; j < profilePointCount - 2; j++) {
-            rockIdx.push(0, j + 1, j);
-        }
+        // Front face cap removed to keep portal opening clear
 
         const backBase = (rings.length - 1) * profilePointCount;
         for (let j = 1; j < profilePointCount - 1; j++) {

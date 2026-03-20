@@ -738,14 +738,13 @@ export class AIController {
                 ai.driftStrength = 0;
                 ai.driftAngle = 0;
                 ai.driftHoldTimer = 0;
-                ai.targetSpeed = THREE.MathUtils.lerp(
-                    ai.targetSpeed,
-                    postFinishCruiseSpeed,
-                    0.12
-                );
+                // Smooth dt-dependent damping — bypass gear/brake/accel system
+                const cruiseLerp = 1 - Math.exp(-2.5 * dt);
+                ai.speed = THREE.MathUtils.lerp(ai.speed, postFinishCruiseSpeed, cruiseLerp);
+                ai.targetSpeed = ai.speed;
                 ai.lastWaypointSpeed = postFinishCruiseSpeed;
                 ai.lastRubberBand = 1.0;
-                ai.lastDesiredSpeed = ai.targetSpeed;
+                ai.lastDesiredSpeed = ai.speed;
             } else {
                 const driftPenalty = ai.isDrifting
                     ? THREE.MathUtils.lerp(1.0, this.tuning.drift.cornerSpeedPenalty, ai.driftStrength)
@@ -773,23 +772,26 @@ export class AIController {
                 ai.lastDesiredSpeed = ai.targetSpeed;
             }
 
-            this._updateAITransmission(ai);
-            const driveForce = this._getAIDriveForce(ai);
-            if (ai.speed < ai.targetSpeed) {
-                const catchUpGap = Math.max(0, ai.targetSpeed - ai.speed);
-                const catchUpBoost = THREE.MathUtils.clamp(catchUpGap / 20, 0, 0.30);
-                const launchBoost = ai.launchTimer > 0
-                    ? THREE.MathUtils.lerp(1.0, this.tuning.speed.launchAccelScale, ai.launchTimer / this.tuning.speed.launchBoostSec)
-                    : 1.0;
-                ai.speed = Math.min(
-                    ai.targetSpeed,
-                    ai.speed + ai.accel * driveForce * (1 + catchUpBoost) * launchBoost * dt
-                );
-            } else {
-                const driftBrakeScale = ai.isDrifting
-                    ? THREE.MathUtils.lerp(1.0, this.tuning.drift.brakeScaleMin, ai.driftStrength)
-                    : 1.0;
-                ai.speed = Math.max(ai.targetSpeed, ai.speed - (ai.brake * driftBrakeScale) * dt);
+            // Post-race: speed already set via smooth damping, skip gear/accel/brake
+            if (!isPostFinish) {
+                this._updateAITransmission(ai);
+                const driveForce = this._getAIDriveForce(ai);
+                if (ai.speed < ai.targetSpeed) {
+                    const catchUpGap = Math.max(0, ai.targetSpeed - ai.speed);
+                    const catchUpBoost = THREE.MathUtils.clamp(catchUpGap / 20, 0, 0.30);
+                    const launchBoost = ai.launchTimer > 0
+                        ? THREE.MathUtils.lerp(1.0, this.tuning.speed.launchAccelScale, ai.launchTimer / this.tuning.speed.launchBoostSec)
+                        : 1.0;
+                    ai.speed = Math.min(
+                        ai.targetSpeed,
+                        ai.speed + ai.accel * driveForce * (1 + catchUpBoost) * launchBoost * dt
+                    );
+                } else {
+                    const driftBrakeScale = ai.isDrifting
+                        ? THREE.MathUtils.lerp(1.0, this.tuning.drift.brakeScaleMin, ai.driftStrength)
+                        : 1.0;
+                    ai.speed = Math.max(ai.targetSpeed, ai.speed - (ai.brake * driftBrakeScale) * dt);
+                }
             }
 
             const deltaT = (ai.speed * dt) / this.courseBuilder.courseLength;
