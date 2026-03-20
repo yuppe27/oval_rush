@@ -968,9 +968,16 @@ export class CourseBuilder {
     _buildSeasideTerrain() {
         const N = this.sampledPoints.length;
         const step = 2;
-        const waterLevelY = -3.5;
-        const baseY = waterLevelY - 1.2; // extend below water to avoid floating skirt artifacts
+        const groundY = -0.5;
+        const baseY = groundY - 0.8; // extend slightly below ground to avoid gaps
         const edgeOffset = 1.5;
+        const LEVELS = 3;
+        const lateralSpread = [0, 10, 22]; // widen outward
+        const levelColors = [
+            [0.42, 0.55, 0.34], // grass green — road edge
+            [0.38, 0.50, 0.30], // darker grass
+            [0.34, 0.46, 0.28], // field green — ground level
+        ];
         const mat = new THREE.MeshStandardMaterial({
             vertexColors: true,
             roughness: 0.92,
@@ -987,26 +994,33 @@ export class CourseBuilder {
             for (let i = 0; i <= N; i += step) {
                 const sp = this.sampledPoints[i % N];
                 const halfW = sp.width / 2;
-                const edge = sp.position.clone()
-                    .addScaledVector(sp.right, side * (halfW + edgeOffset));
+                const edgeY = sp.position.y;
 
-                // upper vertex — road edge
-                vertices.push(edge.x, edge.y, edge.z);
-                colors.push(0.42, 0.55, 0.34); // grass green
-
-                // lower vertex — water level
-                vertices.push(edge.x, baseY, edge.z);
-                colors.push(0.77, 0.65, 0.42); // sandy brown
+                for (let lv = 0; lv < LEVELS; lv++) {
+                    const t = lv / (LEVELS - 1);
+                    const y = THREE.MathUtils.lerp(edgeY, baseY, t);
+                    const lateral = halfW + edgeOffset + lateralSpread[lv];
+                    const pos = sp.position.clone()
+                        .addScaledVector(sp.right, side * lateral);
+                    pos.y = y;
+                    vertices.push(pos.x, pos.y, pos.z);
+                    const c = levelColors[lv];
+                    colors.push(c[0], c[1], c[2]);
+                }
 
                 if (segCount > 0) {
-                    const bl = (segCount - 1) * 2;
-                    const br = bl + 1;
-                    const tl = segCount * 2;
-                    const tr = tl + 1;
-                    if (side > 0) {
-                        indices.push(bl, tl, br, br, tl, tr);
-                    } else {
-                        indices.push(bl, br, tl, tl, br, tr);
+                    const prev = (segCount - 1) * LEVELS;
+                    const curr = segCount * LEVELS;
+                    for (let lv = 0; lv < LEVELS - 1; lv++) {
+                        const bl = prev + lv;
+                        const br = prev + lv + 1;
+                        const tl = curr + lv;
+                        const tr = curr + lv + 1;
+                        if (side > 0) {
+                            indices.push(bl, tl, br, br, tl, tr);
+                        } else {
+                            indices.push(bl, br, tl, tl, br, tr);
+                        }
                     }
                 }
                 segCount++;
@@ -1025,8 +1039,23 @@ export class CourseBuilder {
     }
 
     _buildSeasideBeach() {
-        const water = new THREE.Mesh(
+        // Grass ground plane covering the course area
+        const ground = new THREE.Mesh(
             new THREE.CircleGeometry(1200, 80),
+            new THREE.MeshStandardMaterial({
+                color: 0x5a8a42,
+                roughness: 0.95,
+                metalness: 0.0,
+            })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -1.0;
+        ground.receiveShadow = true;
+        this.group.add(ground);
+
+        // Water ring beyond the land — seaside atmosphere
+        const water = new THREE.Mesh(
+            new THREE.RingGeometry(600, 1800, 80),
             new THREE.MeshStandardMaterial({
                 color: 0x1e6d96,
                 roughness: 0.35,
@@ -1034,7 +1063,7 @@ export class CourseBuilder {
             })
         );
         water.rotation.x = -Math.PI / 2;
-        water.position.y = -3.5;
+        water.position.y = -1.5;
         this.group.add(water);
 
         const palmTrunkMat = new THREE.MeshStandardMaterial({ color: 0x7b4c24, roughness: 0.8 });
@@ -1044,11 +1073,11 @@ export class CourseBuilder {
         ];
         for (const [x, z] of palmPositions) {
             const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 12, 6), palmTrunkMat);
-            trunk.position.set(x, 2.5, z);
+            trunk.position.set(x, 5.5, z);
             this.group.add(trunk);
             for (let i = 0; i < 5; i++) {
                 const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 7.5), palmLeafMat);
-                leaf.position.set(x, 8.5, z);
+                leaf.position.set(x, 11.5, z);
                 leaf.rotation.y = (Math.PI * 2 * i) / 5;
                 leaf.rotation.x = -0.4;
                 this.group.add(leaf);
@@ -1097,7 +1126,7 @@ export class CourseBuilder {
             new THREE.BoxGeometry(180, 0.2, 120),
             new THREE.MeshStandardMaterial({ color: 0xb69573, roughness: 0.95 })
         );
-        plaza.position.copy(this._getSafeSceneryPosition(new THREE.Vector3(-310, -0.5, 470), 90));
+        plaza.position.copy(this._getSafeSceneryPosition(new THREE.Vector3(-310, 0.0, 470), 90));
         plaza.receiveShadow = true;
         this.group.add(plaza);
     }
@@ -1133,7 +1162,7 @@ export class CourseBuilder {
                 const lateralOffset = sp.width * 0.5 + 28 + depth * 0.65;
                 const center = sp.position.clone()
                     .addScaledVector(sp.right, side * lateralOffset);
-                center.y = -6 + height * 0.5;
+                center.y = -2 + height * 0.5;
                 const basis = new THREE.Matrix4().makeBasis(
                     sp.right.clone().multiplyScalar(side).normalize(),
                     sp.up.clone().normalize(),
@@ -1156,7 +1185,7 @@ export class CourseBuilder {
                     grassMat
                 );
                 cap.position.copy(center);
-                cap.position.y = -6 + height + 2;
+                cap.position.y = -2 + height + 2;
                 cap.quaternion.copy(quat);
                 cap.receiveShadow = true;
                 this.group.add(cap);
