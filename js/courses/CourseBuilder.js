@@ -1216,8 +1216,8 @@ export class CourseBuilder {
         const maxHeight = 52;
         const baseRadius = 48;
         // Overburden top ≈ shoulderRise(4.4) + 7.2 + 11.5/2 = ~17.35
-        // Place mountain body above this level
-        const roofFloor = 18;
+        // Place mountain body well above tunnel structure to avoid road intrusion
+        const roofFloor = 22;
 
         // ── Ridge slabs — full-width, placed ABOVE the tunnel structure ──
         // Moderate extension beyond portals to avoid blocking entrance view
@@ -1231,7 +1231,8 @@ export class CourseBuilder {
             const profileT = (s + 1) / (slabCount + 2);
             const pf = Math.sin(profileT * Math.PI);
             const slabH = Math.max(0, maxHeight * pf - roofFloor);
-            const slabW = baseRadius * (0.6 + 0.4 * pf) * 2;
+            // Cap width to prevent lateral intrusion on curved road sections
+            const slabW = Math.min(baseRadius * (0.6 + 0.4 * pf) * 2, 56);
 
             if (slabH < 3) continue;
 
@@ -1264,7 +1265,7 @@ export class CourseBuilder {
         // ── Side walls — fill from road-edge down to water, follow road curve ──
         // Only within tunnel zone (no extension) to avoid blocking portals
         const wallStep = Math.max(1, Math.floor(indices.length / 20));
-        const portalMargin = Math.ceil(indices.length * 0.08);
+        const portalMargin = Math.ceil(indices.length * 0.15);
         for (let i = portalMargin; i < indices.length - portalMargin; i += wallStep) {
             const sp = this.sampledPoints[indices[i]];
             const nextI = Math.min(i + wallStep, indices.length - 1);
@@ -1281,8 +1282,8 @@ export class CourseBuilder {
             const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
             const outerW = baseRadius * (0.6 + 0.4 * pf);
 
-            // Tunnel structure extends ±23 from center; use 24 as inner clearance
-            const innerEdge = 24;
+            // Tunnel structure extends ±23 from center; wide clearance for curved roads
+            const innerEdge = 30;
             const wallWidth = outerW - innerEdge;
             if (wallWidth < 3) continue;
             // Wall height: from below road (water = -3.5) up to roofFloor
