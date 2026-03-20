@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { GameLoop } from './core/GameLoop.js';
 import { Renderer } from './graphics/Renderer.js';
-import { CameraController } from './graphics/CameraController.js';
-import { HUD } from './graphics/HUD.js';
-import { InputManager } from './input/InputManager.js';
-import { PlayerVehicle } from './vehicles/PlayerVehicle.js';
-import { CourseBuilder } from './courses/CourseBuilder.js';
+import { CameraController } from './graphics/CameraController.js?v=2';
+import { HUD } from './graphics/HUD.js?v=2';
+import { InputManager } from './input/InputManager.js?v=2';
+import { PlayerVehicle } from './vehicles/PlayerVehicle.js?v=2';
+import { CourseBuilder } from './courses/CourseBuilder.js?v=2';
 import { resolveCourse } from './courses/CourseData.js';
 import { RaceManager } from './race/RaceManager.js';
 import { AIController } from './ai/AIController.js';
@@ -15,7 +15,7 @@ import { BoostFX } from './effects/BoostFX.js';
 import { PodiumFX } from './effects/PodiumFX.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { resolveVehiclePreset, toVehiclePhysics } from './vehicles/VehicleParams.js';
-import { UIManager } from './ui/UIManager.js';
+import { UIManager } from './ui/UIManager.js?v=2';
 import { insertRanking } from './race/Ranking.js';
 import {
     FIXED_TIMESTEP,

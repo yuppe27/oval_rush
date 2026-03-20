@@ -338,10 +338,19 @@ export class HUD {
 
     setDebugPanel(active, lines = []) {
         if (!this.debugEl) return;
+        const raceEls = [this.lapEl, this.positionEl, this.gapEl, this.timerEl,
+            this.totalTimeEl, this.bestLapEl, this.speedEl, this.gearEl,
+            this.slipstreamEl, this.countdownEl];
         if (!active) {
             this.debugEl.style.display = 'none';
             this.debugEl.textContent = '';
+            for (const el of raceEls) {
+                if (el) el.style.removeProperty('visibility');
+            }
             return;
+        }
+        for (const el of raceEls) {
+            if (el) el.style.visibility = 'hidden';
         }
         this.debugEl.textContent = lines.join('\n');
         this.debugEl.style.display = 'block';

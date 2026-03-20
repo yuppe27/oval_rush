@@ -523,6 +523,8 @@ export class UIManager {
             if (this._debugSequenceIndex >= HIDDEN_DEBUG_SEQUENCE.length) {
                 this._debugUnlocked = true;
                 this._debugSequenceIndex = 0;
+                if (this.audio) this.audio.playSfx?.('checkpoint');
+                console.log('%c DEBUG MODE UNLOCKED ', 'background:#0ff;color:#000;font-weight:bold');
             }
             return;
         }

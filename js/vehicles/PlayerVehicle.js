@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VehicleModel } from './VehicleModel.js';
+import { VehicleModel } from './VehicleModel.js?v=2';
 import {
     DEFAULT_MAX_SPEED,
     DEFAULT_ACCELERATION,
