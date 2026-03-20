@@ -694,19 +694,31 @@ export class AIController {
                 continue;
             }
 
-            const wpInfo = this.waypointSystem.findNearestAhead(ai.progressT, ai.currentWaypointIndex);
+            const isPostFinish = postFinishCruiseSpeed !== null;
+            const wpInfo = isPostFinish
+                ? null
+                : this.waypointSystem.findNearestAhead(ai.progressT, ai.currentWaypointIndex);
             if (wpInfo) {
                 ai.currentWaypointIndex = wpInfo.index;
             }
             const wp = wpInfo ? wpInfo.waypoint : null;
-            this._updateRacingLineTarget(ai, wpInfo);
-            try {
-                this._updateAIDrift(ai, wp, dt);
-            } catch {
+            if (!isPostFinish) {
+                this._updateRacingLineTarget(ai, wpInfo);
+            }
+            if (isPostFinish) {
                 ai.isDrifting = false;
-                ai.driftAngle = 0;
                 ai.driftStrength = 0;
+                ai.driftAngle *= Math.pow(0.1, dt);
                 ai.driftHoldTimer = 0;
+            } else {
+                try {
+                    this._updateAIDrift(ai, wp, dt);
+                } catch {
+                    ai.isDrifting = false;
+                    ai.driftAngle = 0;
+                    ai.driftStrength = 0;
+                    ai.driftHoldTimer = 0;
+                }
             }
             if (introCruiseSpeed !== null) {
                 ai.isDrifting = false;
@@ -797,9 +809,12 @@ export class AIController {
             }
         }
 
-        this._applyLaneAvoidance();
-        this._applyTrafficSpacing(dt);
-        this._resolveAICollisions(player, dt);
+        const isPostRace = raceState === 'finish_celebration' || raceState === 'finished';
+        if (!isPostRace) {
+            this._applyLaneAvoidance();
+            this._applyTrafficSpacing(dt);
+            this._resolveAICollisions(player, dt);
+        }
         this._updateTransforms(raceState);
     }
 
