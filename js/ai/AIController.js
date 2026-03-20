@@ -31,7 +31,7 @@ const DEFAULT_TUNING = {
     drift: {
         curvatureEnter: 0.16,
         curvatureExit: 0.10,
-        minSpeedRatio: 0.42,
+        minSpeedRatio: 0.52,
         holdSec: 0.28,
         strengthLerpIn: 0.17,
         strengthLerpOut: 0.10,
@@ -75,8 +75,8 @@ const DEFAULT_TUNING = {
         aiPlayerSpeedLoss: 0.982,
         playerSpeedLoss: 0.976,
         overlapSpeedCut: 0.97,
-        sideBySideProgressT: 0.0035,
-        sideBySideLongitudinalDist: 1.35,
+        sideBySideProgressT: 0.006,
+        sideBySideLongitudinalDist: 2.0,
         sideBySideAvoidBoost: 1.15,
         sideBySidePushScale: 0.82,
         sideBySideLaneOffsetScale: 0.42,
@@ -596,9 +596,14 @@ export class AIController {
             const t = idx / N;
             const lane = col === 0 ? -2.2 : 2.2;
             ai.setGridPosition(t, 1);
-            ai.launchTimer = this.tuning.speed.launchBoostSec;
+            // 遅いAIにスタート加速ボーナスを付与して序盤の順位シャッフルを促進
+            const paceNorm = THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1);
+            const launchBonus = THREE.MathUtils.lerp(1.35, 1.0, paceNorm);
+            ai.launchTimer = this.tuning.speed.launchBoostSec * launchBonus;
             ai.launchThrottle = 1.0;
-            ai.speed = ai.maxSpeed * this.tuning.speed.launchMinSpeedRatio;
+            // 初速にランダム揺らぎを加え、同列の2台に差をつける
+            const startJitter = 0.92 + Math.random() * 0.12;
+            ai.speed = ai.maxSpeed * this.tuning.speed.launchMinSpeedRatio * startJitter;
             ai.targetSpeed = ai.maxSpeed * this.tuning.speed.launchTargetSpeedRatio;
             ai.laneOffset = lane;
             ai.laneTarget = lane;
@@ -836,8 +841,9 @@ export class AIController {
             // Grace period: don't penalize AI that are ahead during initial seconds
             const graceSec = c.rbAheadGraceSec ?? 0;
             if (graceSec > 0 && this._raceElapsed < graceSec) {
-                // Gradually phase in the ahead penalty as grace period expires
-                const graceRatio = THREE.MathUtils.clamp(this._raceElapsed / graceSec, 0, 1);
+                // 二乗カーブで徐々にペナルティを適用（序盤はほぼ無効、終盤で強まる）
+                const graceLinear = THREE.MathUtils.clamp(this._raceElapsed / graceSec, 0, 1);
+                const graceRatio = graceLinear * graceLinear;
                 const t = THREE.MathUtils.clamp(
                     (delta - c.rbAheadStart) / c.rbAheadRange,
                     0,
@@ -909,15 +915,37 @@ export class AIController {
         return gearRatio * ai.transmissionFinalRatio * torqueBand * limiter * speedFalloff;
     }
 
-    _findClosestWaypointIndex(t) {
-        if (!this.waypoints.length) return 0;
+    _findClosestWaypointIndex(t, hint = -1) {
+        const wps = this.waypoints;
+        if (!wps.length) return 0;
+
+        // ヒントが有効な場合は ±3 の範囲で探索（ほぼ O(1)）
+        if (hint >= 0 && hint < wps.length) {
+            const searchRadius = 3;
+            let best = hint;
+            let bestD = Infinity;
+            for (let offset = -searchRadius; offset <= searchRadius; offset++) {
+                const idx = ((hint + offset) % wps.length + wps.length) % wps.length;
+                const d = Math.abs(wps[idx].t - t);
+                const dist = Math.min(d, 1 - d);
+                if (dist < bestD) {
+                    bestD = dist;
+                    best = idx;
+                }
+            }
+            // ヒントが大きくずれていなければ近傍結果を返す
+            if (bestD < 0.05) return best;
+        }
+
+        // フォールバック: フル探索
         let best = 0;
         let bestD = Infinity;
-        for (let i = 0; i < this.waypoints.length; i++) {
-            const d = Math.abs(this.waypoints[i].t - t);
-            if (d < bestD) {
+        for (let i = 0; i < wps.length; i++) {
+            const d = Math.abs(wps[i].t - t);
+            const dist = Math.min(d, 1 - d);
+            if (dist < bestD) {
                 best = i;
-                bestD = d;
+                bestD = dist;
             }
         }
         return best;
@@ -937,7 +965,7 @@ export class AIController {
         const stability = ai.stability ?? 0.5;
         const enterThreshold = THREE.MathUtils.lerp(td.curvatureEnter + 0.03, td.curvatureEnter - 0.025, aggression);
         const exitThreshold = THREE.MathUtils.lerp(td.curvatureExit + 0.02, td.curvatureExit - 0.015, stability);
-        const minSpeedRatio = THREE.MathUtils.lerp(td.minSpeedRatio + 0.05, td.minSpeedRatio - 0.03, aggression);
+        const minSpeedRatio = THREE.MathUtils.lerp(td.minSpeedRatio + 0.04, td.minSpeedRatio - 0.02, aggression);
         const speedOk = ai.speed > ai.maxSpeed * minSpeedRatio;
         const curve = waypoint.curvature ?? 0;
         const wantEnter = speedOk && curve >= enterThreshold;
@@ -946,7 +974,9 @@ export class AIController {
             ai.driftHoldTimer = td.holdSec;
         } else if (ai.isDrifting) {
             ai.driftHoldTimer = Math.max(0, ai.driftHoldTimer - dt);
-            if (curve <= exitThreshold && ai.driftHoldTimer <= 0) {
+            // 曲率回復 OR 速度低下 でドリフト終了（ホールドタイマーは曲率回復時のみ必要）
+            const tooSlow = ai.speed < ai.maxSpeed * (minSpeedRatio * 0.85);
+            if (tooSlow || (curve <= exitThreshold && ai.driftHoldTimer <= 0)) {
                 ai.isDrifting = false;
             }
         }
@@ -1126,10 +1156,12 @@ export class AIController {
                 const leftScore = this._scoreOvertakeLane(a, leftCandidate, laneLimit, tc);
                 const rightScore = this._scoreOvertakeLane(a, rightCandidate, laneLimit, tc);
                 const targetLane = leftScore >= rightScore ? leftCandidate : rightCandidate;
-                // 相対速度が高いほど追い越しに強くコミットする
+                // 相対速度 + 距離近接度の両方でコミット強化
                 const urgency = THREE.MathUtils.clamp(bestAheadRelSpeed / 12, 0, 1);
-                const baseCommit = THREE.MathUtils.lerp(tc.overtakeCommit * 0.55, tc.overtakeCommit * 1.08, a.aggression ?? 0.5);
-                const commit = Math.min(baseCommit * THREE.MathUtils.lerp(1.0, 1.6, urgency), 0.95);
+                const proximityUrgency = THREE.MathUtils.clamp(1.0 - bestAheadDelta / tc.overtakeLookAheadT, 0, 1);
+                const combinedUrgency = Math.max(urgency, proximityUrgency * 0.7);
+                const baseCommit = THREE.MathUtils.lerp(tc.overtakeCommit * 0.60, tc.overtakeCommit * 1.12, a.aggression ?? 0.5);
+                const commit = Math.min(baseCommit * THREE.MathUtils.lerp(1.0, 1.5, combinedUrgency), 0.95);
                 desired = THREE.MathUtils.lerp(desired, targetLane, commit);
             }
 
@@ -1225,9 +1257,12 @@ export class AIController {
 
             const closeN = 1 - THREE.MathUtils.clamp(nearestAheadDelta / followLookAheadT, 0, 1);
             const relativeSpeed = Math.max(0, ai.speed - nearestAhead.speed);
+            // spacingBias で追従応答を大きく個性化
+            // 高 spacingBias（車間保持型）: 早めに減速して安全な車間を維持
+            // 低 spacingBias（接近走行型）: ギリギリまで減速しない攻撃的な走行
             const baseResponse = THREE.MathUtils.lerp(
-                this.tuning.speed.followResponse * 0.6,
-                0.025,
+                this.tuning.speed.followResponse * 0.35,
+                this.tuning.speed.followResponse * 1.2,
                 spacingBias
             );
             const aggressionScale = THREE.MathUtils.lerp(0.82, 1.08, aggression);
@@ -1413,9 +1448,11 @@ export class AIController {
                     const front = aheadAB < aheadBA ? b : a;
                     rear.speed = Math.min(rear.speed, front.speed * tc.overlapSpeedCut);
                     // dt スケールで速度ロスを適用（フレームレートに依存しない）
+                    // 最低速度を前方車の85%に制限して連鎖衝突での過剰減速を防止
                     const loss = Math.pow(tc.aiAiSpeedLoss, dt * 60);
-                    a.speed *= loss;
-                    b.speed *= loss;
+                    const minCollisionSpeed = front.speed * 0.85;
+                    a.speed = Math.max(minCollisionSpeed, a.speed * loss);
+                    b.speed = Math.max(minCollisionSpeed, b.speed * loss);
 
                     // 後方車が左右の空いている方へ回避する
                     const tl = this.tuning.lane;
