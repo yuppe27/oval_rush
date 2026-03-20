@@ -21,9 +21,9 @@ export const KMH_TO_MS = 1 / 3.6;          // km/h -> m/s
 export const MS_TO_KMH = 3.6;              // m/s -> km/h
 
 // Camera
-export const CAMERA_CHASE_DISTANCE = 5;     // meters behind vehicle
-export const CAMERA_CHASE_HEIGHT = 2.5;     // meters above vehicle
-export const CAMERA_CHASE_LOOK_AHEAD = 3;   // look ahead distance
+export const CAMERA_CHASE_DISTANCE = 6.5;   // meters behind vehicle
+export const CAMERA_CHASE_HEIGHT = 3.5;     // meters above vehicle
+export const CAMERA_CHASE_LOOK_AHEAD = 10;  // look ahead distance
 export const CAMERA_SMOOTHING = 5.0;        // camera lerp speed
 export const CAMERA_BASE_FOV = 75;
 export const CAMERA_MAX_FOV_BOOST = 10;     // extra FOV at max speed

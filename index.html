@@ -240,6 +240,23 @@
         }
     }
     </script>
-    <script type="module" src="js/main.js?v=5"></script>
+    <script>
+    // ── Cache bust: clear all browser caches on startup ──
+    (function() {
+        // 1. Unregister any lingering service workers
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+            });
+        }
+        // 2. Clear Cache Storage API entries
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                names.forEach(function(name) { caches.delete(name); });
+            });
+        }
+    })();
+    </script>
+    <script type="module" src="js/main.js?v=6"></script>
 </body>
 </html>

@@ -396,6 +396,7 @@ export class VehicleModel {
             metalness: 0.05,
             transparent: true,
             opacity: 0.35,
+            depthWrite: false,
         });
         this.taillightMat = new THREE.MeshStandardMaterial({
             color: 0xff2222,
@@ -460,28 +461,28 @@ export class VehicleModel {
 
             // Main projector (bright core)
             this._addMesh(new THREE.CylinderGeometry(0.055, 0.055, 0.07, 12), headlightCoreMat, {
-                x: side * (fX - 0.03), y: fY + 0.01, z: fZ + 0.02,
+                x: side * (fX - 0.03), y: fY + 0.01, z: fZ + 0.08,
                 tiltX: Math.PI / 2,
             });
 
             // Secondary projector (inner)
             this._addMesh(new THREE.CylinderGeometry(0.035, 0.035, 0.06, 10), headlightCoreMat, {
-                x: side * (fX + 0.08), y: fY + 0.01, z: fZ + 0.02,
+                x: side * (fX + 0.08), y: fY + 0.01, z: fZ + 0.08,
                 tiltX: Math.PI / 2,
             });
 
             // Projector ring (chrome)
             this._addMesh(new THREE.TorusGeometry(0.06, 0.008, 8, 16), chromeTrimMat, {
-                x: side * (fX - 0.03), y: fY + 0.01, z: fZ + 0.06,
+                x: side * (fX - 0.03), y: fY + 0.01, z: fZ + 0.09,
             });
 
             // DRL strip (L-shaped: horizontal bar under headlight)
             this._addMesh(new THREE.BoxGeometry(0.28, 0.025, 0.04), drlMat, {
-                x: side * fX, y: fY - 0.085, z: fZ + 0.03,
+                x: side * fX, y: fY - 0.085, z: fZ + 0.08,
             });
             // DRL strip vertical segment (outer edge)
             this._addMesh(new THREE.BoxGeometry(0.025, 0.12, 0.04), drlMat, {
-                x: side * (fX + side * 0.14), y: fY - 0.02, z: fZ + 0.03,
+                x: side * (fX + side * 0.14), y: fY - 0.02, z: fZ + 0.08,
             });
 
             // Lens cover (transparent, slightly protruding)
@@ -697,7 +698,7 @@ export class VehicleModel {
                     exhaustX: 0.34, exhaustY: 0.34, exhaustZ: -2.38,
                     wheelR: 0.3, wheelT: 0.28, wheelX: 1.04, wheelY: 0.3,
                     wheelFrontZ: 1.36, wheelRearZ: -1.42,
-                    lightY: 0.5, lightFrontX: 0.72, lightFrontZ: 2.34, lightRearX: 0.68, lightRearZ: -2.28,
+                    lightY: 0.5, lightFrontX: 0.72, lightFrontZ: 2.67, lightRearX: 0.68, lightRearZ: -2.28,
                 };
             case 'ironclad':
                 return {
@@ -723,7 +724,7 @@ export class VehicleModel {
                     exhaustX: 0.38, exhaustY: 0.38, exhaustZ: -2.24,
                     wheelR: 0.34, wheelT: 0.3, wheelX: 1.08, wheelY: 0.33,
                     wheelFrontZ: 1.24, wheelRearZ: -1.24,
-                    lightY: 0.58, lightFrontX: 0.76, lightFrontZ: 2.02, lightRearX: 0.72, lightRearZ: -2.0,
+                    lightY: 0.58, lightFrontX: 0.76, lightFrontZ: 2.40, lightRearX: 0.72, lightRearZ: -2.0,
                 };
             default:
                 return {
@@ -749,7 +750,7 @@ export class VehicleModel {
                     exhaustX: 0.34, exhaustY: 0.34, exhaustZ: -2.24,
                     wheelR: 0.31, wheelT: 0.27, wheelX: 1.01, wheelY: 0.31,
                     wheelFrontZ: 1.3, wheelRearZ: -1.32,
-                    lightY: 0.54, lightFrontX: 0.72, lightFrontZ: 2.16, lightRearX: 0.68, lightRearZ: -2.12,
+                    lightY: 0.54, lightFrontX: 0.72, lightFrontZ: 2.54, lightRearX: 0.68, lightRearZ: -2.12,
                 };
         }
     }
