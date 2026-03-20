@@ -1262,45 +1262,70 @@ export class CourseBuilder {
             this.group.add(grassTop);
         }
 
-        // ── Inner cliff faces — continuous mesh from road edge up to ridge slabs ──
-        // Replaces box-based side walls with seamless triangle strips.
-        const cliffStep = Math.max(1, Math.floor(indices.length / 30));
+        // ── Mountain body — multi-tier slope from road edge to below water ──
+        // 4 tiers: road-edge → mid-slope → lower-slope → underwater base
+        // Each tier widens outward, forming a natural mountain silhouette.
+        const baseY = -4.5; // sink below water (-3.5) to guarantee no gap
+        const sStep = Math.max(1, Math.floor(indices.length / 30));
         for (const side of [-1, 1]) {
             const verts = [];
             const colors = [];
             const idx = [];
             let seg = 0;
 
-            for (let i = -2; i <= indices.length + 2; i += cliffStep) {
+            for (let i = -4; i <= indices.length + 4; i += sStep) {
                 const ci = THREE.MathUtils.clamp(i, 0, indices.length - 1);
                 const sp = this.sampledPoints[indices[ci]];
-                const pT = (i + 2) / (indices.length + 4);
+                const pT = (i + 4) / (indices.length + 8);
                 const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
 
-                // Bottom: just outside guardrail, at water level
-                const innerOffset = sp.width * 0.5 + 5;
-                const bottom = sp.position.clone()
-                    .addScaledVector(sp.right, side * innerOffset);
-                bottom.y = -3.5;
+                const roadY = sp.position.y;
 
-                // Top: same lateral position, at ridge slab height
-                const topY = sp.position.y + Math.max(roofFloor * pf, 1);
-                const top = sp.position.clone()
-                    .addScaledVector(sp.right, side * innerOffset);
-                top.y = topY;
+                // Tier 0 (top): at ridge slab base, just outside guardrail
+                const t0Off = sp.width * 0.5 + 5;
+                const t0Y = roadY + Math.max(roofFloor * pf, 1);
+                const t0 = sp.position.clone().addScaledVector(sp.right, side * t0Off);
+                t0.y = t0Y;
 
-                verts.push(bottom.x, bottom.y, bottom.z);
-                colors.push(0.38, 0.35, 0.30); // dark rock
-                verts.push(top.x, top.y, top.z);
-                colors.push(0.42, 0.39, 0.34); // lighter rock
+                // Tier 1: 1/3 drop, moderate outward spread
+                const t1Off = t0Off + 8 * pf + 4;
+                const t1Y = roadY + (t0Y - roadY) * 0.33;
+                const t1 = sp.position.clone().addScaledVector(sp.right, side * t1Off);
+                t1.y = t1Y;
+
+                // Tier 2: 2/3 drop, wider spread
+                const t2Off = t1Off + 12 * pf + 6;
+                const t2Y = THREE.MathUtils.lerp(roadY, baseY, 0.7);
+                const t2 = sp.position.clone().addScaledVector(sp.right, side * t2Off);
+                t2.y = t2Y;
+
+                // Tier 3 (bottom): below water, widest spread
+                const t3Off = t2Off + 10 * pf + 8;
+                const t3 = sp.position.clone().addScaledVector(sp.right, side * t3Off);
+                t3.y = baseY;
+
+                const base = seg * 4;
+                verts.push(t0.x, t0.y, t0.z);
+                colors.push(0.42, 0.39, 0.34); // upper rock
+                verts.push(t1.x, t1.y, t1.z);
+                colors.push(0.42, 0.50, 0.34); // grass/rock mix
+                verts.push(t2.x, t2.y, t2.z);
+                colors.push(0.55, 0.48, 0.35); // earth
+                verts.push(t3.x, t3.y, t3.z);
+                colors.push(0.60, 0.52, 0.38); // sandy bottom
 
                 if (seg > 0) {
-                    const bl = (seg - 1) * 2, tl = bl + 1;
-                    const br = seg * 2, tr = br + 1;
-                    if (side > 0) {
-                        idx.push(bl, br, tl, tl, br, tr);
-                    } else {
-                        idx.push(bl, tl, br, br, tl, tr);
+                    const prev = (seg - 1) * 4;
+                    const cur = seg * 4;
+                    // Connect each tier strip: prev[tier]→cur[tier] quad
+                    for (let t = 0; t < 3; t++) {
+                        const bl = prev + t, tl = prev + t + 1;
+                        const br = cur + t, tr = cur + t + 1;
+                        if (side > 0) {
+                            idx.push(bl, br, tl, tl, br, tr);
+                        } else {
+                            idx.push(bl, tl, br, br, tl, tr);
+                        }
                     }
                 }
                 seg++;
@@ -1312,7 +1337,7 @@ export class CourseBuilder {
             geo.setIndex(idx);
             geo.computeVertexNormals();
             const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-                vertexColors: true, roughness: 0.95, metalness: 0.02, side: THREE.DoubleSide,
+                vertexColors: true, roughness: 0.94, metalness: 0.02, side: THREE.DoubleSide,
             }));
             mesh.castShadow = true;
             mesh.receiveShadow = true;
@@ -1352,56 +1377,6 @@ export class CourseBuilder {
             rCone.castShadow = true;
             rCone.receiveShadow = true;
             this.group.add(rCone);
-        }
-
-        // ── Slope skirts — connect mountain body to water level ──
-        // Inner edge starts close to road (just outside guardrail) and
-        // slopes outward down to water, creating a solid hillside.
-        const baseY = -3.5;
-        for (const side of [-1, 1]) {
-            const slopeVerts = [];
-            const slopeColors = [];
-            const slopeIdx = [];
-            let sc = 0;
-            const sStep = Math.max(1, Math.floor(indices.length / 28));
-
-            for (let i = -4; i <= indices.length + 4; i += sStep) {
-                const ci = THREE.MathUtils.clamp(i, 0, indices.length - 1);
-                const sp = this.sampledPoints[indices[ci]];
-                const pT = (i + 4) / (indices.length + 8);
-                const pf = Math.sin(pT * Math.PI);
-                // Inner top edge: just outside the guardrail/road edge
-                const innerOffset = sp.width * 0.5 + 6;
-                const top = sp.position.clone().addScaledVector(sp.right, side * innerOffset);
-                top.y = sp.position.y + Math.max(roofFloor * pf, 2);
-                // Outer bottom edge: slopes outward to water level
-                const outerOffset = baseRadius * (0.6 + 0.4 * pf);
-                const bottom = sp.position.clone().addScaledVector(sp.right, side * (outerOffset + outerOffset * 0.4));
-                bottom.y = baseY;
-
-                slopeVerts.push(top.x, top.y, top.z);
-                slopeColors.push(0.42, 0.55, 0.34); // grass
-                slopeVerts.push(bottom.x, bottom.y, bottom.z);
-                slopeColors.push(0.65, 0.55, 0.38); // sandy earth
-
-                if (sc > 0) {
-                    const bl = (sc - 1) * 2, br = bl + 1, tl = sc * 2, tr = tl + 1;
-                    if (side > 0) { slopeIdx.push(bl, tl, br, br, tl, tr); }
-                    else { slopeIdx.push(bl, br, tl, tl, br, tr); }
-                }
-                sc++;
-            }
-
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(slopeVerts, 3));
-            geo.setAttribute('color', new THREE.Float32BufferAttribute(slopeColors, 3));
-            geo.setIndex(slopeIdx);
-            geo.computeVertexNormals();
-            const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-                vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide,
-            }));
-            mesh.receiveShadow = true;
-            this.group.add(mesh);
         }
     }
 
