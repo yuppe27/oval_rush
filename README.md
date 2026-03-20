@@ -20,11 +20,20 @@
 start_game_server.bat をダブルクリック
 ```
 
+**Linux / macOS の場合（推奨）:**
+
+```bash
+chmod +x ./start_game_server.sh
+./start_game_server.sh
+```
+
 **手動起動（Python）:**
 
 ```bash
-python -m http.server 8000
+python3 -m http.server 8000
 ```
+
+`python3` が無い環境では `python -m http.server 8000` でも起動できます。
 
 **手動起動（Node.js）:**
 

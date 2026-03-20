@@ -1925,31 +1925,45 @@ export class CourseBuilder {
         const profile = {
             seaside: {
                 threshold: 0.9,
+                sCurveThreshold: 0.59,
                 leadMeters: 48,
+                sCurveLeadMeters: 56,
                 signSpacingMeters: 22,
                 minSpacingMeters: 180,
+                maxZoneShiftMeters: 32,
+                sCurveMaxGapMeters: 180,
                 lateralOffset: 5.8,
                 boardWidth: 9.5,
                 boardHeight: 3.9,
                 postHeight: 3.5,
                 minSigns: 2,
                 maxSigns: 3,
+                sCurveMinSigns: 1,
+                sCurveMaxSigns: 2,
                 severityRef: 1.14,
+                sCurveSeverityRef: 1.02,
                 skipPeakZoneKeys: ['tunnel'],
                 avoidSignZoneKeys: ['tunnel'],
             },
             mountain: {
                 threshold: 0.95,
+                sCurveThreshold: 0.66,
                 leadMeters: 44,
+                sCurveLeadMeters: 48,
                 signSpacingMeters: 18,
                 minSpacingMeters: 165,
+                maxZoneShiftMeters: 28,
+                sCurveMaxGapMeters: 230,
                 lateralOffset: 4.9,
                 boardWidth: 8.8,
                 boardHeight: 3.6,
                 postHeight: 3.35,
                 minSigns: 2,
                 maxSigns: 4,
+                sCurveMinSigns: 1,
+                sCurveMaxSigns: 2,
                 severityRef: 1.18,
+                sCurveSeverityRef: 1.04,
                 skipPeakZoneKeys: ['tunnel'],
                 avoidSignZoneKeys: ['tunnel', 'mist'],
             },
@@ -1959,12 +1973,12 @@ export class CourseBuilder {
 
         const candidates = this._findCurveWarningCandidates(profile);
         for (const candidate of candidates) {
-            const turnSign = Math.sign(candidate.signedCurve) || 1;
-            const side = -turnSign;
+            const turnSign = candidate.turnSign ?? (Math.sign(candidate.signedCurve) || 1);
+            const side = candidate.side ?? -turnSign;
             for (const signIndex of candidate.signIndices) {
                 const sp = this.sampledPoints[signIndex];
                 if (!sp) continue;
-                this._createCurveWarningSign(sp, turnSign, side, profile);
+                this._createCurveWarningSign(sp, turnSign, side, profile, candidate.signType);
             }
         }
     }
@@ -1975,6 +1989,10 @@ export class CourseBuilder {
         const leadSamples = Math.max(10, Math.round(profile.leadMeters / Math.max(1e-3, metersPerSample)));
         const signSpacingSamples = Math.max(7, Math.round(profile.signSpacingMeters / Math.max(1e-3, metersPerSample)));
         const minSpacingSamples = Math.max(20, Math.round(profile.minSpacingMeters / Math.max(1e-3, metersPerSample)));
+        const maxZoneShiftSamples = Math.max(
+            2,
+            Math.round((profile.maxZoneShiftMeters ?? (profile.signSpacingMeters * 1.5)) / Math.max(1e-3, metersPerSample))
+        );
         const lookAheadOffsets = [4, 8, 14, 20];
         const peakWindow = 4;
         const skipPeakZones = this._collectCourseZones(profile.skipPeakZoneKeys);
@@ -2007,23 +2025,26 @@ export class CourseBuilder {
             signedCurves[i] = weightSum > 0 ? signedWeighted / weightSum : 0;
         }
 
-        const peaks = [];
-        for (let i = 0; i < N; i++) {
-            if (curves[i] < profile.threshold) continue;
-            if (this._isSampleIndexInZones(i, skipPeakZones)) continue;
+        const peakThreshold = Math.min(profile.threshold, profile.sCurveThreshold ?? profile.threshold);
+        const peaks = this._collectCurveWarningPeaks(curves, signedCurves, peakThreshold, skipPeakZones, peakWindow);
+        const sCurveCandidates = this._buildSCurveWarningCandidates(peaks, profile, {
+            metersPerSample,
+            signSpacingSamples,
+            maxZoneShiftSamples,
+            avoidSignZones,
+        });
+        const sCurvePeakIndices = new Set(
+            sCurveCandidates.flatMap(candidate => candidate.componentPeakIndices || [])
+        );
+        const sharpCandidates = [];
 
-            let isPeak = true;
-            for (let j = 1; j <= peakWindow; j++) {
-                if (curves[(i - j + N) % N] > curves[i] || curves[(i + j) % N] > curves[i]) {
-                    isPeak = false;
-                    break;
-                }
-            }
-            if (!isPeak) continue;
+        for (const peak of peaks) {
+            if (peak.curvature < profile.threshold) continue;
+            if (sCurvePeakIndices.has(peak.index)) continue;
 
-            const signIndex = (i - leadSamples + N) % N;
+            const signIndex = (peak.index - leadSamples + N) % N;
             const severityN = THREE.MathUtils.clamp(
-                (curves[i] - profile.threshold) / Math.max(1e-3, profile.severityRef - profile.threshold),
+                (peak.curvature - profile.threshold) / Math.max(1e-3, profile.severityRef - profile.threshold),
                 0,
                 1
             );
@@ -2038,34 +2059,160 @@ export class CourseBuilder {
             for (let s = signCount - 1; s >= 0; s--) {
                 signIndices.push((signIndex - s * signSpacingSamples + N) % N);
             }
-            this._shiftIndicesOutOfZones(signIndices, avoidSignZones);
-            peaks.push({
-                index: i,
+            const shiftedSamples = this._shiftIndicesOutOfZones(signIndices, avoidSignZones, maxZoneShiftSamples);
+            if (shiftedSamples == null) continue;
+
+            const turnSign = Math.sign(peak.signedCurve) || 1;
+            sharpCandidates.push({
+                ...peak,
+                signType: 'curve',
+                turnSign,
+                side: -turnSign,
                 signIndex,
                 signIndices,
                 signCount,
                 severityN,
-                curvature: curves[i],
-                signedCurve: signedCurves[i],
+                selectionScore: peak.curvature,
             });
         }
 
-        peaks.sort((a, b) => b.curvature - a.curvature);
+        const candidates = [...sharpCandidates, ...sCurveCandidates];
+        candidates.sort((a, b) => (b.selectionScore ?? b.curvature) - (a.selectionScore ?? a.curvature));
 
         const selected = [];
-        for (const peak of peaks) {
+        for (const candidate of candidates) {
             const tooClose = selected.some(item =>
-                this._getWrappedSampleDistance(item.index, peak.index) < minSpacingSamples
-                || peak.signIndices.some(signIdx =>
+                this._getWrappedSampleDistance(item.index, candidate.index) < minSpacingSamples
+                || candidate.signIndices.some(signIdx =>
                     item.signIndices.some(otherSignIdx =>
                         this._getWrappedSampleDistance(otherSignIdx, signIdx) < Math.round(signSpacingSamples * 1.15)
                     )
                 )
             );
-            if (!tooClose) selected.push(peak);
+            if (!tooClose) selected.push(candidate);
         }
 
         return selected.sort((a, b) => a.signIndex - b.signIndex);
+    }
+
+    _collectCurveWarningPeaks(curves, signedCurves, threshold, skipPeakZones, peakWindow) {
+        const N = this.sampledPoints.length;
+        const peaks = [];
+
+        for (let i = 0; i < N; i++) {
+            if (curves[i] < threshold) continue;
+            if (this._isSampleIndexInZones(i, skipPeakZones)) continue;
+
+            let isPeak = true;
+            for (let j = 1; j <= peakWindow; j++) {
+                if (curves[(i - j + N) % N] > curves[i] || curves[(i + j) % N] > curves[i]) {
+                    isPeak = false;
+                    break;
+                }
+            }
+            if (!isPeak) continue;
+
+            peaks.push({
+                index: i,
+                curvature: curves[i],
+                signedCurve: signedCurves[i],
+            });
+        }
+
+        return peaks.sort((a, b) => a.index - b.index);
+    }
+
+    _buildSCurveWarningCandidates(peaks, profile, options = {}) {
+        if (!profile.sCurveThreshold) return [];
+
+        const {
+            metersPerSample = 1,
+            signSpacingSamples = 7,
+            maxZoneShiftSamples = Infinity,
+            avoidSignZones = [],
+        } = options;
+
+        const N = this.sampledPoints.length;
+        const gapSamples = Math.max(
+            signSpacingSamples + 2,
+            Math.round((profile.sCurveMaxGapMeters ?? (profile.signSpacingMeters * 6)) / Math.max(1e-3, metersPerSample))
+        );
+        const leadSamples = Math.max(
+            10,
+            Math.round((profile.sCurveLeadMeters ?? profile.leadMeters) / Math.max(1e-3, metersPerSample))
+        );
+        const eligible = peaks.filter(peak =>
+            peak.curvature >= profile.sCurveThreshold && Math.sign(peak.signedCurve) !== 0
+        );
+        const pairCandidates = [];
+
+        for (let i = 0; i < eligible.length; i++) {
+            const first = eligible[i];
+
+            for (let j = i + 1; j < eligible.length; j++) {
+                const second = eligible[j];
+                const sampleGap = second.index - first.index;
+                if (sampleGap > gapSamples) break;
+                if (Math.sign(first.signedCurve) === Math.sign(second.signedCurve)) continue;
+
+                const signIndex = (first.index - leadSamples + N) % N;
+                const severityCurve = Math.max(first.curvature, second.curvature);
+                const severityN = THREE.MathUtils.clamp(
+                    (severityCurve - profile.sCurveThreshold) / Math.max(1e-3, profile.sCurveSeverityRef - profile.sCurveThreshold),
+                    0,
+                    1
+                );
+                const signCount = Math.max(
+                    profile.sCurveMinSigns,
+                    Math.min(
+                        profile.sCurveMaxSigns,
+                        Math.round(THREE.MathUtils.lerp(profile.sCurveMinSigns, profile.sCurveMaxSigns, severityN))
+                    )
+                );
+                const signIndices = [];
+                for (let s = signCount - 1; s >= 0; s--) {
+                    signIndices.push((signIndex - s * signSpacingSamples + N) % N);
+                }
+                const shiftedSamples = this._shiftIndicesOutOfZones(signIndices, avoidSignZones, maxZoneShiftSamples);
+                if (shiftedSamples == null) continue;
+
+                const turnSign = Math.sign(first.signedCurve) || 1;
+                const gapPenalty = sampleGap / Math.max(1, gapSamples);
+                const shiftPenalty = shiftedSamples / Math.max(1, maxZoneShiftSamples);
+                pairCandidates.push({
+                    index: first.index,
+                    pairIndex: second.index,
+                    curvature: severityCurve,
+                    signedCurve: first.signedCurve,
+                    signType: 'sCurve',
+                    turnSign,
+                    side: -turnSign,
+                    signIndex,
+                    signIndices,
+                    signCount,
+                    severityN,
+                    componentPeakIndices: [first.index, second.index],
+                    selectionScore: severityCurve * 1.32
+                        + Math.min(first.curvature, second.curvature) * 0.74
+                        - gapPenalty * 0.14
+                        - shiftPenalty * 0.08,
+                });
+            }
+        }
+
+        pairCandidates.sort((a, b) => b.selectionScore - a.selectionScore);
+
+        const selected = [];
+        const usedPeakIndices = new Set();
+        for (const candidate of pairCandidates) {
+            if (candidate.componentPeakIndices.some(index => usedPeakIndices.has(index))) continue;
+            selected.push(candidate);
+            for (const index of candidate.componentPeakIndices) {
+                usedPeakIndices.add(index);
+            }
+        }
+
+        return selected;
     }
 
     _getWrappedSampleDistance(a, b) {
@@ -2100,23 +2247,27 @@ export class CourseBuilder {
         return false;
     }
 
-    _shiftIndicesOutOfZones(indices, zones = []) {
-        if (!indices?.length || !zones?.length || !this.sampledPoints.length) return indices;
+    _shiftIndicesOutOfZones(indices, zones = [], maxShiftSamples = Infinity) {
+        if (!indices?.length || !zones?.length || !this.sampledPoints.length) return 0;
 
         const N = this.sampledPoints.length;
         let guard = 0;
-        while (indices.some(index => this._isSampleIndexInZones(index, zones)) && guard < N) {
+        while (
+            indices.some(index => this._isSampleIndexInZones(index, zones))
+            && guard < N
+            && guard < maxShiftSamples
+        ) {
             for (let i = 0; i < indices.length; i++) {
                 indices[i] = (indices[i] - 1 + N) % N;
             }
             guard++;
         }
-        return indices;
+        return indices.some(index => this._isSampleIndexInZones(index, zones)) ? null : guard;
     }
 
-    _createCurveWarningSign(sp, turnSign, side, profile) {
+    _createCurveWarningSign(sp, turnSign, side, profile, signType = 'curve') {
         const signGroup = new THREE.Group();
-        const boardTexture = this._getCurveWarningSignTexture(turnSign);
+        const boardTexture = this._getCurveWarningSignTexture(signType, turnSign);
         const postMat = new THREE.MeshStandardMaterial({
             color: 0x62686e,
             roughness: 0.54,
@@ -2180,8 +2331,8 @@ export class CourseBuilder {
         this.group.add(signGroup);
     }
 
-    _getCurveWarningSignTexture(turnSign) {
-        const key = turnSign >= 0 ? 'right' : 'left';
+    _getCurveWarningSignTexture(signType, turnSign) {
+        const key = `${signType}-${turnSign >= 0 ? 'right' : 'left'}`;
         if (this._curveSignTextureCache.has(key)) {
             return this._curveSignTextureCache.get(key);
         }
@@ -2204,13 +2355,43 @@ export class CourseBuilder {
         ctx.strokeStyle = '#181818';
         ctx.lineWidth = 26;
 
-        const centers = [156, 256, 356];
-        for (const cx of centers) {
+        if (signType === 'sCurve') {
+            const start = { x: 256 - dir * 22, y: 34 };
+            const cp1 = { x: 256 + dir * 124, y: 56 };
+            const cp2 = { x: 256 + dir * 132, y: 88 };
+            const mid = { x: 256 + dir * 10, y: 110 };
+            const cp3 = { x: 256 - dir * 124, y: 134 };
+            const cp4 = { x: 256 - dir * 132, y: 166 };
+            const end = { x: 256 - dir * 18, y: 192 };
+
             ctx.beginPath();
-            ctx.moveTo(cx + dir * 42, 52);
-            ctx.lineTo(cx - dir * 12, 112);
-            ctx.lineTo(cx + dir * 42, 172);
+            ctx.moveTo(start.x, start.y);
+            ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, mid.x, mid.y);
+            ctx.bezierCurveTo(cp3.x, cp3.y, cp4.x, cp4.y, end.x, end.y);
             ctx.stroke();
+
+            const tail = this._sampleCubicBezierPoint(mid, cp3, cp4, end, 0.96);
+            const prev = this._sampleCubicBezierPoint(mid, cp3, cp4, end, 0.82);
+            const arrowDir = new THREE.Vector2(tail.x - prev.x, tail.y - prev.y).normalize();
+            const arrowBase = new THREE.Vector2(end.x, end.y).addScaledVector(arrowDir, -8);
+            const arrowSide = new THREE.Vector2(-arrowDir.y, arrowDir.x).multiplyScalar(16);
+
+            ctx.beginPath();
+            ctx.moveTo(end.x, end.y);
+            ctx.lineTo(arrowBase.x + arrowSide.x, arrowBase.y + arrowSide.y);
+            ctx.lineTo(arrowBase.x - arrowSide.x, arrowBase.y - arrowSide.y);
+            ctx.closePath();
+            ctx.fillStyle = '#181818';
+            ctx.fill();
+        } else {
+            const centers = [156, 256, 356];
+            for (const cx of centers) {
+                ctx.beginPath();
+                ctx.moveTo(cx + dir * 42, 52);
+                ctx.lineTo(cx - dir * 12, 112);
+                ctx.lineTo(cx + dir * 42, 172);
+                ctx.stroke();
+            }
         }
 
         const texture = new THREE.CanvasTexture(canvas);
@@ -2218,6 +2399,21 @@ export class CourseBuilder {
         texture.needsUpdate = true;
         this._curveSignTextureCache.set(key, texture);
         return texture;
+    }
+
+    _sampleCubicBezierPoint(p0, p1, p2, p3, t) {
+        const mt = 1 - t;
+        const mt2 = mt * mt;
+        const t2 = t * t;
+        const w0 = mt2 * mt;
+        const w1 = 3 * mt2 * t;
+        const w2 = 3 * mt * t2;
+        const w3 = t2 * t;
+
+        return {
+            x: p0.x * w0 + p1.x * w1 + p2.x * w2 + p3.x * w3,
+            y: p0.y * w0 + p1.y * w1 + p2.y * w2 + p3.y * w3,
+        };
     }
 
     _buildMountainTerrain() {

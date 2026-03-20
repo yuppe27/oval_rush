@@ -50,6 +50,7 @@ export class AIVehicle {
         this.crashSpinSpeed = 0;
         this.crashYaw = 0;
         this.startLinePassed = false;
+        this.postFinishCruiseSpeed = null;
 
         this.position = new THREE.Vector3();
         this.forward = new THREE.Vector3(0, 0, 1);
@@ -81,5 +82,6 @@ export class AIVehicle {
         this.crashSpinSpeed = 0;
         this.crashYaw = 0;
         this.startLinePassed = false;
+        this.postFinishCruiseSpeed = null;
     }
 }

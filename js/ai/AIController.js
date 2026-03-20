@@ -626,6 +626,7 @@ export class AIController {
             ai.completed = false;
             ai.finishPosition = 0;
             ai.startLinePassed = false;
+            ai.postFinishCruiseSpeed = null;
         }
         this._nextFinishPos = 1;
         this._raceElapsed = 0;
@@ -664,7 +665,7 @@ export class AIController {
         const introCruiseSpeed = raceState === 'grid_intro'
             ? Math.max(0, player?.autoDriveSpeed ?? Math.abs(player?.speed ?? 0))
             : null;
-        const postFinishCruiseSpeed = (raceState === 'finish_celebration' || raceState === 'finished')
+        const globalPostFinishCruiseSpeed = (raceState === 'finish_celebration' || raceState === 'finished')
             ? Math.max(0, player?.autoDriveSpeed ?? Math.abs(player?.speed ?? 0))
             : null;
 
@@ -694,6 +695,7 @@ export class AIController {
                 continue;
             }
 
+            const postFinishCruiseSpeed = this._getPostFinishCruiseSpeed(ai, globalPostFinishCruiseSpeed);
             const isPostFinish = postFinishCruiseSpeed !== null;
             const wpInfo = isPostFinish
                 ? null
@@ -736,14 +738,11 @@ export class AIController {
             } else if (postFinishCruiseSpeed !== null) {
                 // drift state already decayed in the block above (line 708-712);
                 // do NOT reset driftAngle to 0 here — let the exponential decay run
-                // Per-car cruise speed: scale by paceFactor to keep natural variation
-                const paceNorm = THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1);
-                const carCruiseSpeed = postFinishCruiseSpeed * THREE.MathUtils.lerp(0.88, 1.06, paceNorm);
                 // Smooth dt-dependent damping — bypass gear/brake/accel system
                 const cruiseLerp = 1 - Math.exp(-2.5 * dt);
-                ai.speed = THREE.MathUtils.lerp(ai.speed, carCruiseSpeed, cruiseLerp);
+                ai.speed = THREE.MathUtils.lerp(ai.speed, postFinishCruiseSpeed, cruiseLerp);
                 ai.targetSpeed = ai.speed;
-                ai.lastWaypointSpeed = carCruiseSpeed;
+                ai.lastWaypointSpeed = postFinishCruiseSpeed;
                 ai.lastRubberBand = 1.0;
                 ai.lastDesiredSpeed = ai.speed;
                 // Gradually return lane offset to a natural cruise position
@@ -812,6 +811,7 @@ export class AIController {
                         ai.lap = this.totalLaps;
                         ai.completed = true;
                         ai.finishPosition = this._nextFinishPos++;
+                        this._enterPostFinishCruise(ai, globalPostFinishCruiseSpeed);
                     }
                 }
             }
@@ -841,6 +841,36 @@ export class AIController {
     _absProgress(lap, t) {
         const fromStart = ((wrap01(t) - this.startLineT) % 1 + 1) % 1;
         return (lap - 1) + fromStart;
+    }
+
+    _enterPostFinishCruise(ai, globalCruiseSpeed = null) {
+        ai.postFinishCruiseSpeed = this._computePostFinishCruiseSpeed(ai, globalCruiseSpeed);
+    }
+
+    _getPostFinishCruiseSpeed(ai, globalCruiseSpeed = null) {
+        if (globalCruiseSpeed == null && !ai.completed) {
+            return null;
+        }
+        if (globalCruiseSpeed != null) {
+            return this._computePostFinishCruiseSpeed(ai, globalCruiseSpeed);
+        }
+        if (!Number.isFinite(ai.postFinishCruiseSpeed) || ai.postFinishCruiseSpeed <= 0) {
+            this._enterPostFinishCruise(ai, null);
+        }
+        return ai.postFinishCruiseSpeed;
+    }
+
+    _computePostFinishCruiseSpeed(ai, globalCruiseSpeed = null) {
+        const paceNorm = THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1);
+        const minCruise = ai.maxSpeed * THREE.MathUtils.lerp(0.42, 0.48, paceNorm);
+        const maxCruise = ai.maxSpeed * THREE.MathUtils.lerp(0.60, 0.68, paceNorm);
+        if (globalCruiseSpeed != null) {
+            const scaledGlobal = globalCruiseSpeed * THREE.MathUtils.lerp(0.88, 1.06, paceNorm);
+            return THREE.MathUtils.clamp(scaledGlobal, minCruise, maxCruise);
+        }
+
+        const referenceSpeed = Math.max(ai.speed, ai.maxSpeed * 0.36);
+        return THREE.MathUtils.clamp(referenceSpeed, minCruise, maxCruise);
     }
 
     /** Assign the next finish position (called by RaceManager for the player). */
@@ -1107,6 +1137,7 @@ export class AIController {
 
         for (let i = 0; i < this.vehicles.length; i++) {
             const a = this.vehicles[i];
+            if (a.completed) continue;
             const sampleIdx = Math.floor(a.progressT * N) % N;
             const sp = this.courseBuilder.sampledPoints[sampleIdx];
             const laneLimit = Math.max(0.8, (sp.width * 0.5) - tc.wallMargin); // keep car body inside road edges
@@ -1121,6 +1152,7 @@ export class AIController {
             for (let j = 0; j < this.vehicles.length; j++) {
                 if (i === j) continue;
                 const b = this.vehicles[j];
+                if (b.completed) continue;
                 const d = Math.abs(a.progressT - b.progressT);
                 const closeT = Math.min(d, 1 - d);
                 const closeLane = Math.abs(a.laneOffset - b.laneOffset);
@@ -1220,6 +1252,7 @@ export class AIController {
         let nearestPenalty = 0;
         for (const other of this.vehicles) {
             if (other === ai) continue;
+            if (other.completed) continue;
             const aheadDelta = wrap01(other.progressT - ai.progressT);
             const closeAhead = aheadDelta < tc.overtakeLookAheadT * 1.35 || aheadDelta > 0.985;
             if (!closeAhead) continue;
@@ -1242,6 +1275,7 @@ export class AIController {
 
     _applyTrafficSpacing(dt) {
         for (const ai of this.vehicles) {
+            if (ai.completed) continue;
             const aggression = ai.aggression ?? 0.5;
             const spacingBias = ai.spacingBias ?? 0.5;
             const followLookAheadT = THREE.MathUtils.lerp(0.008, 0.014, spacingBias);
@@ -1255,6 +1289,7 @@ export class AIController {
 
             for (const other of this.vehicles) {
                 if (other === ai) continue;
+                if (other.completed) continue;
                 const aheadDelta = wrap01(other.progressT - ai.progressT);
                 if (aheadDelta <= 1e-4 || aheadDelta >= followLookAheadT) continue;
 
@@ -1408,9 +1443,11 @@ export class AIController {
         const N = this.courseBuilder.sampledPoints.length;
         for (let i = 0; i < this.vehicles.length; i++) {
             const a = this.vehicles[i];
+            if (a.completed) continue;
             const aPose = this._getAIPose(a);
             for (let j = i + 1; j < this.vehicles.length; j++) {
                 const b = this.vehicles[j];
+                if (b.completed) continue;
                 const bPose = this._getAIPose(b);
                 const dx = bPose.position.x - aPose.position.x;
                 const dz = bPose.position.z - aPose.position.z;
@@ -1502,6 +1539,7 @@ export class AIController {
             const minPlayerDist = tc.minPlayerDist;
             const playerForward = new THREE.Vector3(Math.sin(player.rotation), 0, Math.cos(player.rotation)).normalize();
             for (const ai of this.vehicles) {
+                if (ai.completed) continue;
                 if (ai.isCrashed || ai.crashTimer > 0) continue;
                 const aiPose = this._getAIPose(ai);
                 const dx = aiPose.position.x - player.position.x;
