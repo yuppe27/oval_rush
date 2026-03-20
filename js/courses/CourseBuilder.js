@@ -1198,9 +1198,7 @@ export class CourseBuilder {
         const endIdx = this._findSampleIndexAt(tunnelZone.end);
         const indices = this._collectWrappedIndices(startIdx, endIdx);
         if (indices.length < 2) return;
-        const mountainSegmentCount = Math.max(6, Math.floor(indices.length * 0.42));
-        const mountainIndices = indices.slice(0, mountainSegmentCount);
-        if (mountainIndices.length < 2) return;
+        const mountainIndices = indices;
 
         const mountainMat = new THREE.MeshStandardMaterial({
             color: 0x6b6256, roughness: 0.96, metalness: 0.02,
@@ -1268,6 +1266,11 @@ export class CourseBuilder {
                 slabW,
                 slabY,
                 slabH,
+                frameSp: this.sampledPoints[
+                    mountainIndices[
+                        Math.floor(profileT * (mountainIndices.length - 1))
+                    ]
+                ],
             });
 
             // Grass top
@@ -1282,100 +1285,9 @@ export class CourseBuilder {
             this.group.add(grassTop);
         }
 
-        // ── Mountain body — multi-tier slope from road edge down to water surface ──
-        // 4 tiers: road-edge → mid-slope → lower-slope → underwater base
-        // Each tier widens outward, forming a natural mountain silhouette.
-        const sStep = Math.max(1, Math.floor(mountainIndices.length / 30));
-        for (const side of mountainSides) {
-            const verts = [];
-            const colors = [];
-            const idx = [];
-            let seg = 0;
-
-            for (let i = -4; i <= mountainIndices.length + 4; i += sStep) {
-                const ci = THREE.MathUtils.clamp(i, 0, mountainIndices.length - 1);
-                const sp = this.sampledPoints[mountainIndices[ci]];
-                const pT = (i + 4) / (mountainIndices.length + 8);
-                const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
-
-                const roadY = sp.position.y;
-                const tunnelOuterHalf = (sp.width + 30) * 0.5 + 16;
-
-                // Tier 0 (top): align with ridge slab footprint so the overburden
-                // visually connects to the lower mountain instead of floating.
-                const ridgeHalfW = Math.min(baseRadius * (0.6 + 0.4 * pf), 28);
-                const t0Off = Math.max(tunnelOuterHalf, ridgeHalfW + 4);
-                const t0Y = roadY + Math.max(roofFloor * pf, 1);
-                const t0 = sp.position.clone().addScaledVector(sp.right, side * t0Off);
-                t0.y = t0Y;
-
-                // Tier 1: 1/3 drop, moderate outward spread
-                const t1Off = t0Off + 10 * pf + 5;
-                const t1Y = roadY + (t0Y - roadY) * 0.33;
-                const t1 = sp.position.clone().addScaledVector(sp.right, side * t1Off);
-                t1.y = t1Y;
-
-                // Tier 2: 2/3 drop, wider spread, define at water line for final visible skirt contact
-                const t2Off = t1Off + 14 * pf + 7;
-                const t2Y = THREE.MathUtils.lerp(roadY, waterLevelY, 0.95);
-                const t2 = sp.position.clone().addScaledVector(sp.right, side * t2Off);
-                t2.y = t2Y;
-
-                // Tier 3 (bottom): underwater base, widest spread
-                const t3Off = t2Off + 12 * pf + 10;
-                const t3 = sp.position.clone().addScaledVector(sp.right, side * t3Off);
-                t3.y = baseY;
-
-                const base = seg * 4;
-                verts.push(t0.x, t0.y, t0.z);
-                colors.push(0.42, 0.39, 0.34); // upper rock
-                verts.push(t1.x, t1.y, t1.z);
-                colors.push(0.42, 0.50, 0.34); // grass/rock mix
-                verts.push(t2.x, t2.y, t2.z);
-                colors.push(0.55, 0.48, 0.35); // earth
-                verts.push(t3.x, t3.y, t3.z);
-                colors.push(0.60, 0.52, 0.38); // sandy bottom
-
-                if (seg > 0) {
-                    const prev = (seg - 1) * 4;
-                    const cur = seg * 4;
-                    // Connect each tier strip: prev[tier]→cur[tier] quad
-                    for (let t = 0; t < 3; t++) {
-                        const bl = prev + t, tl = prev + t + 1;
-                        const br = cur + t, tr = cur + t + 1;
-                        if (side > 0) {
-                            idx.push(bl, br, tl, tl, br, tr);
-                        } else {
-                            idx.push(bl, tl, br, br, tl, tr);
-                        }
-                    }
-                }
-                seg++;
-            }
-
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-            geo.setIndex(idx);
-            geo.computeVertexNormals();
-            const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-                vertexColors: true, roughness: 0.94, metalness: 0.02, side: THREE.FrontSide,
-            }));
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            this.group.add(mesh);
-        }
-
-        this._buildTunnelMountainSkirt(slabProfiles, slabRight, mountainMat, {
-            side: -1,
-            baseY,
-        });
-
-        for (const cliffSide of mountainSides) {
-            this._buildTunnelMountainCliffFace(mountainIndices, cliffSide, mountainMat, grassMat, {
-                roofFloor,
-                baseRadius,
-                waterLevelY,
+        for (const skirtSide of mountainSides) {
+            this._buildTunnelMountainSkirt(slabProfiles, slabRight, mountainMat, {
+                side: skirtSide,
                 baseY,
             });
         }
@@ -1416,95 +1328,6 @@ export class CourseBuilder {
         }
     }
 
-    _buildTunnelMountainCliffFace(indices, side, mountainMat, grassMat, options) {
-        if (!indices?.length) return;
-
-        const {
-            roofFloor = 22,
-            baseRadius = 48,
-            waterLevelY = -3.5,
-            baseY = -5.3,
-        } = options || {};
-
-        const step = Math.max(1, Math.floor(indices.length / 24));
-        const verts = [];
-        const colors = [];
-        const idx = [];
-        let seg = 0;
-
-        for (let i = -3; i <= indices.length + 3; i += step) {
-            const ci = THREE.MathUtils.clamp(i, 0, indices.length - 1);
-            const sp = this.sampledPoints[indices[ci]];
-            const pT = (i + 3) / (indices.length + 6);
-            const ridgeProfile = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
-            const noiseA = Math.sin(i * 0.63) * 0.5 + Math.cos(i * 0.27) * 0.5;
-            const noiseB = Math.sin(i * 0.41 + 1.2) * 0.5 + Math.cos(i * 0.18 - 0.6) * 0.5;
-            const roadY = sp.position.y;
-            const ridgeHalfW = Math.min(baseRadius * (0.62 + 0.38 * ridgeProfile), 29);
-            const tunnelOuterHalf = (sp.width + 30) * 0.5 + 28;
-
-            const topOff = Math.max(tunnelOuterHalf, ridgeHalfW + 4 + noiseA * 1.4);
-            const topY = roadY + Math.max(roofFloor * ridgeProfile, 2) + 1.8 + noiseB * 1.2;
-            const midOff = topOff + 10 + ridgeProfile * 6 + noiseA * 2.0;
-            const midY = THREE.MathUtils.lerp(topY, waterLevelY + 10, 0.42) + noiseB * 1.5;
-            const lowerOff = midOff + 12 + ridgeProfile * 8 + noiseB * 2.4;
-            const lowerY = THREE.MathUtils.lerp(topY, waterLevelY, 0.78) + noiseA * 1.2;
-            const toeOff = lowerOff + 10 + ridgeProfile * 10 + Math.max(0, noiseA) * 3.5;
-            const toeY = baseY;
-
-            const top = sp.position.clone().addScaledVector(sp.right, side * topOff);
-            top.y = topY;
-            const mid = sp.position.clone().addScaledVector(sp.right, side * midOff);
-            mid.y = midY;
-            const lower = sp.position.clone().addScaledVector(sp.right, side * lowerOff);
-            lower.y = lowerY;
-            const toe = sp.position.clone().addScaledVector(sp.right, side * toeOff);
-            toe.y = toeY;
-
-            verts.push(top.x, top.y, top.z);
-            colors.push(0.31, 0.28, 0.24);
-            verts.push(mid.x, mid.y, mid.z);
-            colors.push(0.34, 0.30, 0.26);
-            verts.push(lower.x, lower.y, lower.z);
-            colors.push(0.36, 0.32, 0.28);
-            verts.push(toe.x, toe.y, toe.z);
-            colors.push(0.28, 0.25, 0.22);
-
-            if (seg > 0) {
-                const prev = (seg - 1) * 4;
-                const cur = seg * 4;
-                for (let t = 0; t < 3; t++) {
-                    const bl = prev + t;
-                    const tl = prev + t + 1;
-                    const br = cur + t;
-                    const tr = cur + t + 1;
-                    if (side > 0) {
-                        idx.push(bl, br, tl, tl, br, tr);
-                    } else {
-                        idx.push(bl, tl, br, br, tl, tr);
-                    }
-                }
-            }
-            seg++;
-        }
-
-        const cliffGeo = new THREE.BufferGeometry();
-        cliffGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-        cliffGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        cliffGeo.setIndex(idx);
-        cliffGeo.computeVertexNormals();
-
-        const cliffMesh = new THREE.Mesh(cliffGeo, new THREE.MeshStandardMaterial({
-            vertexColors: true,
-            roughness: 0.98,
-            metalness: 0.01,
-            side: THREE.FrontSide,
-        }));
-        cliffMesh.castShadow = true;
-        cliffMesh.receiveShadow = true;
-        this.group.add(cliffMesh);
-    }
-
     _buildTunnelMountainSkirt(slabProfiles, slabRight, material, options = {}) {
         if (!slabProfiles?.length || !slabRight) return;
 
@@ -1515,28 +1338,70 @@ export class CourseBuilder {
         const idx = [];
 
         for (let i = 0; i < slabProfiles.length; i++) {
-            const { pos, pf, slabW, slabY, slabH } = slabProfiles[i];
-            const topOff = slabW * 0.5 - 1.5;
-            const bottomOff = slabW * 0.5 + 18 + pf * 10;
+            const { pos, pf, slabW, slabY, slabH, frameSp } = slabProfiles[i];
+            const outerBias = 20 + pf * 14;
+            const topOff = slabW * 0.5 + 28;
+            const midOff = topOff + outerBias;
+            const lowOff = midOff + 14 + pf * 8;
+            const baseOff = lowOff + 18 + pf * 10;
+            const shellHalf = (frameSp?.width ?? 0) * 0.5 + 16;
 
             const top = pos.clone().addScaledVector(slabRight, side * topOff);
-            top.y = slabY - slabH * 0.5 + 0.8;
-
-            const bottom = pos.clone().addScaledVector(slabRight, side * bottomOff);
+            top.y = slabY - slabH * 0.5 + 1.0;
+            const mid = pos.clone().addScaledVector(slabRight, side * midOff);
+            mid.y = THREE.MathUtils.lerp(top.y, baseY, 0.28);
+            const low = pos.clone().addScaledVector(slabRight, side * lowOff);
+            low.y = THREE.MathUtils.lerp(top.y, baseY, 0.68);
+            const bottom = pos.clone().addScaledVector(slabRight, side * baseOff);
             bottom.y = baseY;
 
+            this._pushTunnelMountainVertexOutward(
+                top,
+                frameSp,
+                side,
+                Math.max(shellHalf + 6, topOff - 8)
+            );
+            this._pushTunnelMountainVertexOutward(
+                mid,
+                frameSp,
+                side,
+                Math.max(shellHalf + 18, midOff - 8)
+            );
+            this._pushTunnelMountainVertexOutward(
+                low,
+                frameSp,
+                side,
+                Math.max(shellHalf + 28, lowOff - 10)
+            );
+            this._pushTunnelMountainVertexOutward(
+                bottom,
+                frameSp,
+                side,
+                Math.max(shellHalf + 40, baseOff - 12)
+            );
+
             verts.push(top.x, top.y, top.z);
-            colors.push(0.34, 0.31, 0.27);
+            colors.push(0.36, 0.33, 0.28);
+            verts.push(mid.x, mid.y, mid.z);
+            colors.push(0.35, 0.32, 0.27);
+            verts.push(low.x, low.y, low.z);
+            colors.push(0.33, 0.30, 0.26);
             verts.push(bottom.x, bottom.y, bottom.z);
             colors.push(0.30, 0.27, 0.24);
 
             if (i > 0) {
-                const prev = (i - 1) * 2;
-                const cur = i * 2;
-                if (side > 0) {
-                    idx.push(prev, cur, prev + 1, prev + 1, cur, cur + 1);
-                } else {
-                    idx.push(prev, prev + 1, cur, cur, prev + 1, cur + 1);
+                const prev = (i - 1) * 4;
+                const cur = i * 4;
+                for (let t = 0; t < 3; t++) {
+                    const bl = prev + t;
+                    const tl = prev + t + 1;
+                    const br = cur + t;
+                    const tr = cur + t + 1;
+                    if (side > 0) {
+                        idx.push(bl, br, tl, tl, br, tr);
+                    } else {
+                        idx.push(bl, br, tl, tl, br, tr);
+                    }
                 }
             }
         }
@@ -1556,6 +1421,21 @@ export class CourseBuilder {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.group.add(mesh);
+    }
+
+    _pushTunnelMountainVertexOutward(point, frameSp, side, minOffset) {
+        if (!point || !frameSp?.position || !frameSp?.right) return;
+
+        const outwardSign = side >= 0 ? 1 : -1;
+        const delta = point.clone().sub(frameSp.position);
+        const lateral = delta.dot(frameSp.right);
+        const target = outwardSign * minOffset;
+
+        if (outwardSign * lateral >= minOffset) {
+            return;
+        }
+
+        point.addScaledVector(frameSp.right, target - lateral);
     }
 
     _buildSeasideTunnel() {
