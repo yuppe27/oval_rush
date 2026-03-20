@@ -1343,7 +1343,9 @@ export class CourseBuilder {
             this.group.add(rCone);
         }
 
-        // ── Slope skirts — connect outer mountain edge to water level ──
+        // ── Slope skirts — connect mountain body to water level ──
+        // Inner edge starts close to road (just outside guardrail) and
+        // slopes outward down to water, creating a solid hillside.
         const baseY = -3.5;
         for (const side of [-1, 1]) {
             const slopeVerts = [];
@@ -1357,14 +1359,19 @@ export class CourseBuilder {
                 const sp = this.sampledPoints[indices[ci]];
                 const pT = (i + 4) / (indices.length + 8);
                 const pf = Math.sin(pT * Math.PI);
-                const sw = baseRadius * (0.6 + 0.4 * pf);
-                const top = sp.position.clone().addScaledVector(sp.right, side * sw);
-                top.y = sp.position.y + maxHeight * pf * 0.3;
+                // Inner top edge: just outside the guardrail/road edge
+                const innerOffset = sp.width * 0.5 + 6;
+                const top = sp.position.clone().addScaledVector(sp.right, side * innerOffset);
+                top.y = sp.position.y + Math.max(roofFloor * pf, 2);
+                // Outer bottom edge: slopes outward to water level
+                const outerOffset = baseRadius * (0.6 + 0.4 * pf);
+                const bottom = sp.position.clone().addScaledVector(sp.right, side * (outerOffset + outerOffset * 0.4));
+                bottom.y = baseY;
 
                 slopeVerts.push(top.x, top.y, top.z);
-                slopeColors.push(0.42, 0.55, 0.34);
-                slopeVerts.push(top.x + side * sw * 0.4, baseY, top.z);
-                slopeColors.push(0.65, 0.55, 0.38);
+                slopeColors.push(0.42, 0.55, 0.34); // grass
+                slopeVerts.push(bottom.x, bottom.y, bottom.z);
+                slopeColors.push(0.65, 0.55, 0.38); // sandy earth
 
                 if (sc > 0) {
                     const bl = (sc - 1) * 2, br = bl + 1, tl = sc * 2, tr = tl + 1;
