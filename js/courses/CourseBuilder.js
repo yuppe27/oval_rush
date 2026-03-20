@@ -968,16 +968,24 @@ export class CourseBuilder {
     _buildSeasideTerrain() {
         const N = this.sampledPoints.length;
         const step = 2;
-        const groundY = -0.5;
-        const baseY = groundY - 0.8; // extend slightly below ground to avoid gaps
         const edgeOffset = 1.5;
         const LEVELS = 3;
-        const lateralSpread = [0, 10, 22]; // widen outward
-        const levelColors = [
+        // Inside: grass terrain
+        const innerSpread = [0, 10, 22];
+        const innerColors = [
             [0.42, 0.55, 0.34], // grass green — road edge
             [0.38, 0.50, 0.30], // darker grass
             [0.34, 0.46, 0.28], // field green — ground level
         ];
+        const innerBaseY = -1.3;
+        // Outside: sandy beach descending to water
+        const outerSpread = [0, 8, 18];
+        const outerColors = [
+            [0.42, 0.55, 0.34], // grass green — road edge
+            [0.77, 0.65, 0.42], // sandy brown
+            [0.12, 0.43, 0.59], // water blue
+        ];
+        const outerBaseY = -3.5;
         const mat = new THREE.MeshStandardMaterial({
             vertexColors: true,
             roughness: 0.92,
@@ -985,11 +993,33 @@ export class CourseBuilder {
             side: THREE.DoubleSide,
         });
 
+        // Calculate centroid to determine inside vs outside
+        let cx = 0, cz = 0;
+        for (let i = 0; i < N; i++) {
+            cx += this.sampledPoints[i].position.x;
+            cz += this.sampledPoints[i].position.z;
+        }
+        cx /= N;
+        cz /= N;
+
         for (const side of [-1, 1]) {
             const vertices = [];
             const colors = [];
             const indices = [];
             let segCount = 0;
+
+            // Determine inside/outside once per side using majority vote
+            let dotSum = 0;
+            for (let i = 0; i < N; i += step) {
+                const sp = this.sampledPoints[i];
+                const toCX = cx - sp.position.x;
+                const toCZ = cz - sp.position.z;
+                dotSum += toCX * sp.right.x + toCZ * sp.right.z;
+            }
+            const isInside = (side > 0) === (dotSum > 0);
+            const spread = isInside ? innerSpread : outerSpread;
+            const lvColors = isInside ? innerColors : outerColors;
+            const baseY = isInside ? innerBaseY : outerBaseY;
 
             for (let i = 0; i <= N; i += step) {
                 const sp = this.sampledPoints[i % N];
@@ -999,12 +1029,12 @@ export class CourseBuilder {
                 for (let lv = 0; lv < LEVELS; lv++) {
                     const t = lv / (LEVELS - 1);
                     const y = THREE.MathUtils.lerp(edgeY, baseY, t);
-                    const lateral = halfW + edgeOffset + lateralSpread[lv];
+                    const lateral = halfW + edgeOffset + spread[lv];
                     const pos = sp.position.clone()
                         .addScaledVector(sp.right, side * lateral);
                     pos.y = y;
                     vertices.push(pos.x, pos.y, pos.z);
-                    const c = levelColors[lv];
+                    const c = lvColors[lv];
                     colors.push(c[0], c[1], c[2]);
                 }
 
@@ -1039,23 +1069,67 @@ export class CourseBuilder {
     }
 
     _buildSeasideBeach() {
-        // Grass ground plane covering the course area
+        // Grass ground — fan triangulation from centroid using BufferGeometry
+        const N = this.sampledPoints.length;
+        const step = 4;
+        // Calculate centroid
+        let cx = 0, cz = 0, count = 0;
+        for (let i = 0; i < N; i += step) {
+            const sp = this.sampledPoints[i];
+            cx += sp.position.x;
+            cz += sp.position.z;
+            count++;
+        }
+        cx /= count;
+        cz /= count;
+        // Collect edge points offset inward from road edge
+        const edgePts = [];
+        for (let i = 0; i < N; i += step) {
+            const sp = this.sampledPoints[i];
+            const halfW = sp.width / 2;
+            const toCentroidX = cx - sp.position.x;
+            const toCentroidZ = cz - sp.position.z;
+            const inwardSign = Math.sign(toCentroidX * sp.right.x + toCentroidZ * sp.right.z);
+            const offset = halfW + 1;
+            edgePts.push(
+                sp.position.x + sp.right.x * inwardSign * offset,
+                sp.position.z + sp.right.z * inwardSign * offset,
+            );
+        }
+        // Build fan triangles: centroid + consecutive edge pairs
+        const groundY = -1.0;
+        const verts = [];
+        const idxs = [];
+        // Vertex 0 = centroid
+        verts.push(cx, groundY, cz);
+        for (let i = 0; i < edgePts.length; i += 2) {
+            verts.push(edgePts[i], groundY, edgePts[i + 1]);
+        }
+        const numEdge = edgePts.length / 2;
+        for (let i = 0; i < numEdge; i++) {
+            const a = 1 + i;
+            const b = 1 + ((i + 1) % numEdge);
+            idxs.push(0, a, b);
+        }
+        const groundGeo = new THREE.BufferGeometry();
+        groundGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+        groundGeo.setIndex(idxs);
+        groundGeo.computeVertexNormals();
         const ground = new THREE.Mesh(
-            new THREE.CircleGeometry(1200, 80),
+            groundGeo,
             new THREE.MeshStandardMaterial({
                 color: 0x5a8a42,
                 roughness: 0.95,
                 metalness: 0.0,
+                side: THREE.DoubleSide,
             })
         );
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -1.0;
         ground.receiveShadow = true;
         this.group.add(ground);
 
-        // Water ring beyond the land — seaside atmosphere
+        // Water plane covering the full area — seaside atmosphere
         const water = new THREE.Mesh(
-            new THREE.RingGeometry(600, 1800, 80),
+            new THREE.CircleGeometry(1800, 80),
             new THREE.MeshStandardMaterial({
                 color: 0x1e6d96,
                 roughness: 0.35,
@@ -1063,7 +1137,7 @@ export class CourseBuilder {
             })
         );
         water.rotation.x = -Math.PI / 2;
-        water.position.y = -1.5;
+        water.position.y = -3.5;
         this.group.add(water);
 
         const palmTrunkMat = new THREE.MeshStandardMaterial({ color: 0x7b4c24, roughness: 0.8 });
