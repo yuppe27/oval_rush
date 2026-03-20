@@ -1262,52 +1262,61 @@ export class CourseBuilder {
             this.group.add(grassTop);
         }
 
-        // ── Side walls — fill from slope top down to water, follow road curve ──
-        // Placed across the full tunnel zone. Near portals the inner edge widens
-        // outward to avoid road intrusion on curved sections.
-        const wallStep = Math.max(1, Math.floor(indices.length / 20));
-        for (let i = 0; i < indices.length; i += wallStep) {
-            const sp = this.sampledPoints[indices[i]];
-            const nextI = Math.min(i + wallStep, indices.length - 1);
-            const nextSp = this.sampledPoints[indices[nextI]];
-            const segD = Math.max(6, sp.position.distanceTo(nextSp.position) + 4);
-            const basis = new THREE.Matrix4().makeBasis(
-                sp.right.clone().normalize(),
-                sp.up.clone().normalize(),
-                sp.forward.clone().normalize()
-            );
-            const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+        // ── Inner cliff faces — continuous mesh from road edge up to ridge slabs ──
+        // Replaces box-based side walls with seamless triangle strips.
+        const cliffStep = Math.max(1, Math.floor(indices.length / 30));
+        for (const side of [-1, 1]) {
+            const verts = [];
+            const colors = [];
+            const idx = [];
+            let seg = 0;
 
-            const pT = i / indices.length;
-            const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
-            const outerW = baseRadius * (0.6 + 0.4 * pf);
+            for (let i = -2; i <= indices.length + 2; i += cliffStep) {
+                const ci = THREE.MathUtils.clamp(i, 0, indices.length - 1);
+                const sp = this.sampledPoints[indices[ci]];
+                const pT = (i + 2) / (indices.length + 4);
+                const pf = Math.sin(THREE.MathUtils.clamp(pT, 0, 1) * Math.PI);
 
-            // Near portals (pf < 0.5), push inner edge further out to avoid road.
-            // Center of tunnel (pf ≈ 1.0) uses tight clearance.
-            const portalSafety = THREE.MathUtils.clamp(1 - pf * 2, 0, 1);
-            const innerEdge = 30 + portalSafety * 18;
-            const wallWidth = outerW - innerEdge;
-            if (wallWidth < 2) continue;
-            // Wall height: from water level up to roofFloor
-            const wallBottom = -3.5;
-            const wallTop = sp.position.y + roofFloor;
-            const wallH = wallTop - wallBottom;
-            if (wallH < 4) continue;
+                // Bottom: just outside guardrail, at water level
+                const innerOffset = sp.width * 0.5 + 5;
+                const bottom = sp.position.clone()
+                    .addScaledVector(sp.right, side * innerOffset);
+                bottom.y = -3.5;
 
-            for (const side of [-1, 1]) {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(wallWidth, wallH, segD),
-                    mountainMat
-                );
-                wall.position.copy(sp.position)
-                    .addScaledVector(sp.right, side * (innerEdge + wallWidth * 0.5))
-                    .addScaledVector(sp.up, 0);
-                wall.position.y = wallBottom + wallH * 0.5;
-                wall.quaternion.copy(quat);
-                wall.castShadow = true;
-                wall.receiveShadow = true;
-                this.group.add(wall);
+                // Top: same lateral position, at ridge slab height
+                const topY = sp.position.y + Math.max(roofFloor * pf, 1);
+                const top = sp.position.clone()
+                    .addScaledVector(sp.right, side * innerOffset);
+                top.y = topY;
+
+                verts.push(bottom.x, bottom.y, bottom.z);
+                colors.push(0.38, 0.35, 0.30); // dark rock
+                verts.push(top.x, top.y, top.z);
+                colors.push(0.42, 0.39, 0.34); // lighter rock
+
+                if (seg > 0) {
+                    const bl = (seg - 1) * 2, tl = bl + 1;
+                    const br = seg * 2, tr = br + 1;
+                    if (side > 0) {
+                        idx.push(bl, br, tl, tl, br, tr);
+                    } else {
+                        idx.push(bl, tl, br, br, tl, tr);
+                    }
+                }
+                seg++;
             }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.setIndex(idx);
+            geo.computeVertexNormals();
+            const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+                vertexColors: true, roughness: 0.95, metalness: 0.02, side: THREE.DoubleSide,
+            }));
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            this.group.add(mesh);
         }
 
         // ── Peaks — prominent cones above the ridge ──
