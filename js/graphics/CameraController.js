@@ -186,6 +186,12 @@ export class CameraController {
             return;
         }
 
+        if (race && raceState === 'finished') {
+            this._updatePostFinishCruiseCamera(dt, vehicle);
+            this._prevRaceState = raceState;
+            return;
+        }
+
         const vPos = vehicle.position;
         const vRot = vehicle.rotation;
 
@@ -286,6 +292,48 @@ export class CameraController {
         // FOV: start wide, then zoom in for telephoto close-up from front
         const targetFov = THREE.MathUtils.lerp(CAMERA_BASE_FOV + 5, 32, b);
         this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 3 + p * 0.5));
+        this.camera.updateProjectionMatrix();
+    }
+
+    /**
+     * Post-finish cruise camera: front-diagonal overhead tracking shot.
+     * Continues the cinematic feel from the celebration camera into the
+     * cruising phase, keeping the player car framed from the front-right.
+     */
+    _updatePostFinishCruiseCamera(dt, vehicle) {
+        const vPos = vehicle.position;
+        const vRot = vehicle.rotation;
+
+        // Forward / right directions of the car
+        const fwdX = Math.sin(vRot);
+        const fwdZ = Math.cos(vRot);
+        const rightX = Math.cos(vRot);
+        const rightZ = -Math.sin(vRot);
+
+        // Camera placement: ahead + right + elevated
+        const frontDist = 6.0;   // meters ahead of the car
+        const lateralDist = 2.8; // meters to the right
+        const height = 2.5;      // meters above the car
+
+        const camPos = new THREE.Vector3(
+            vPos.x + fwdX * frontDist + rightX * lateralDist,
+            vPos.y + height,
+            vPos.z + fwdZ * frontDist + rightZ * lateralDist
+        );
+        // Look at slightly above centre of the car for heroic framing
+        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.6, vPos.z);
+
+        // Smooth transition (especially for the first frame after celebration)
+        const lerpFactor = 1 - Math.exp(-4.0 * dt);
+        this._smoothPosition.lerp(camPos, lerpFactor);
+        this._smoothLookAt.lerp(lookAt, lerpFactor);
+
+        this.camera.position.copy(this._smoothPosition);
+        this.camera.lookAt(this._smoothLookAt);
+
+        // Telephoto-ish FOV for a cinematic close-up feel
+        const targetFov = 38;
+        this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 3));
         this.camera.updateProjectionMatrix();
     }
 
