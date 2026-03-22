@@ -310,10 +310,10 @@ export class CameraController {
         const rightX = Math.cos(vRot);
         const rightZ = -Math.sin(vRot);
 
-        // Camera placement: ahead + right + elevated
-        const frontDist = 6.0;   // meters ahead of the car
-        const lateralDist = 2.8; // meters to the right
-        const height = 2.5;      // meters above the car
+        // Camera placement: ahead + right + elevated (pulled back for wider shot)
+        const frontDist = 10.0;  // meters ahead of the car
+        const lateralDist = 4.5; // meters to the right
+        const height = 4.0;      // meters above the car
 
         const camPos = new THREE.Vector3(
             vPos.x + fwdX * frontDist + rightX * lateralDist,
@@ -321,19 +321,20 @@ export class CameraController {
             vPos.z + fwdZ * frontDist + rightZ * lateralDist
         );
         // Look at slightly above centre of the car for heroic framing
-        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.6, vPos.z);
+        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.7, vPos.z);
 
-        // Position tracks the car directly so the camera never falls behind.
-        // LookAt uses gentle smoothing for cinematic stability.
-        this._smoothPosition.copy(camPos);
+        // High-speed smoothing on both position and lookAt to eliminate
+        // jitter from heading changes on curves while still tracking reliably.
+        const posLerp = 1 - Math.exp(-8.0 * dt);
         const lookLerp = 1 - Math.exp(-10.0 * dt);
+        this._smoothPosition.lerp(camPos, posLerp);
         this._smoothLookAt.lerp(lookAt, lookLerp);
 
         this.camera.position.copy(this._smoothPosition);
         this.camera.lookAt(this._smoothLookAt);
 
-        // Telephoto-ish FOV for a cinematic close-up feel
-        const targetFov = 38;
+        // Moderate telephoto FOV matching the pulled-back distance
+        const targetFov = 45;
         this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 3));
         this.camera.updateProjectionMatrix();
     }
