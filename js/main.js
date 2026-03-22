@@ -13,6 +13,7 @@ import { SlipstreamSystem } from './effects/SlipstreamSystem.js';
 import { TrackEffects } from './effects/TrackEffects.js';
 import { BoostFX } from './effects/BoostFX.js';
 import { PodiumFX } from './effects/PodiumFX.js';
+import { Minimap } from './graphics/Minimap.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { resolveVehiclePreset, toVehiclePhysics } from './vehicles/VehicleParams.js';
 import { UIManager } from './ui/UIManager.js?v=2';
@@ -103,6 +104,8 @@ class Game {
         this.aiController.addToScene(this.renderer.scene);
         this.raceManager.setAIController(this.aiController);
 
+        this.minimap = new Minimap(this.courseBuilder, aiCount);
+
         this.slipstreamSystem = new SlipstreamSystem(this.renderer.scene);
         this.trackEffects = new TrackEffects(this.renderer.scene);
         this.boostFX = new BoostFX();
@@ -186,6 +189,7 @@ class Game {
             this._updateCourseEnvironment(rawDt);
             this._updateJumbotron();
             this.hud.update(this.player, this.raceManager, rawDt);
+            this.minimap.update(this.player, this.aiController, this.raceManager.state);
             this.boostFX.update(rawDt, this.player);
             this.audio.update(rawDt, this.player, this.raceManager);
             this.renderer.updateSky(this.cameraController.camera);
@@ -331,6 +335,7 @@ class Game {
         }
         const resultEl = document.getElementById('hud-result');
         if (resultEl) resultEl.style.display = 'none';
+        this.minimap.dispose();
         this.input.destroy();
         this.cameraController.dispose();
         this.renderer.dispose();
