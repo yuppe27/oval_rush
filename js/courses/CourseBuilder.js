@@ -2674,10 +2674,13 @@ export class CourseBuilder {
         const castleX = 30, castleZ = 360;
         const baseY = -26; // terrain base level
 
-        // Large hill so the castle sits on solid ground
+        // Flat-topped hill (truncated cone) so the castle sits on solid ground
         const hillMat = new THREE.MeshStandardMaterial({ color: 0x5a6b52, roughness: 0.95 });
         const hillH = 80;
-        const hill = new THREE.Mesh(new THREE.ConeGeometry(80, hillH, 8), hillMat);
+        const hill = new THREE.Mesh(
+            new THREE.CylinderGeometry(35, 80, hillH, 8),
+            hillMat
+        );
         hill.position.set(castleX, baseY + hillH / 2, castleZ);
         hill.receiveShadow = true;
         this.group.add(hill);
