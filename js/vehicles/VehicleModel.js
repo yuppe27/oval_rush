@@ -111,14 +111,27 @@ export class VehicleModel {
         this._addSideWindows(profile, glassMat);
 
         // --- Aero ---
-        // Front splitter
-        this._addMesh(new THREE.BoxGeometry(profile.splitterW, 0.06, profile.splitterL), trimMat, {
+        // Front splitter (NASCAR: wide, thick, extends beyond nose)
+        this._addMesh(new THREE.BoxGeometry(profile.splitterW, 0.04, profile.splitterL), trimMat, {
             y: profile.splitterY, z: profile.splitterZ,
         });
-        // Rear diffuser
-        this._addMesh(new THREE.BoxGeometry(profile.diffuserW, 0.08, profile.diffuserL), trimMat, {
+        // Splitter endplates (vertical fins at splitter edges)
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(0.04, 0.12, profile.splitterL * 0.6), trimMat, {
+                x: side * (profile.splitterW / 2),
+                y: profile.splitterY + 0.04,
+                z: profile.splitterZ - profile.splitterL * 0.1,
+            });
+        }
+        // Rear diffuser (flat panel under rear)
+        this._addMesh(new THREE.BoxGeometry(profile.diffuserW, 0.06, profile.diffuserL), trimMat, {
             y: profile.diffuserY, z: profile.diffuserZ,
         });
+
+        // --- Structure ---
+        this._addPillars(profile, bodyMat);
+        this._addBumpers(profile, bodyMat, trimMat, chromeMat);
+        this._addWheelArches(profile, bodyMat);
 
         // --- Details ---
         this._addMirrorPair(profile, chromeMat);
@@ -199,93 +212,239 @@ export class VehicleModel {
         }
     }
 
-    // --- Front grille ---
+    // --- A/B/C pillars (NASCAR: strong pillars bridging wide body to narrow roof) ---
+    _addPillars(profile, bodyMat) {
+        const pillarW = 0.14;
+        // Pillars start at belt line and go up to roof, but also flare outward
+        const beltTop = profile.beltY + profile.beltH / 2;
+        const roofBottom = profile.roofY - profile.roofH / 2;
+        const pillarH = Math.max(0.18, roofBottom - beltTop + profile.roofH * 0.35);
+        const pillarCenterY = beltTop + pillarH * 0.5;
+        // Outer edge aligned with body, inner with roof
+        const pillarX = (profile.roofW / 2 + profile.bodyW / 2) * 0.5;
+
+        // A-pillar (steep windshield angle, wide base)
+        const aPillarZ = profile.windowZ + profile.windowL * 0.28;
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(pillarW, pillarH, 0.14), bodyMat, {
+                x: side * pillarX,
+                y: pillarCenterY,
+                z: aPillarZ,
+                tiltX: profile.windowTilt * 0.50,
+            });
+        }
+        // B-pillar (strong center post)
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(pillarW, pillarH * 0.90, 0.10), bodyMat, {
+                x: side * pillarX,
+                y: pillarCenterY - pillarH * 0.02,
+                z: profile.roofZ + 0.04,
+            });
+        }
+        // C-pillar (wide, wrapping rear for stock car look)
+        const cPillarZ = profile.rearGlassZ - profile.rearGlassL * 0.15;
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(pillarW + 0.06, pillarH * 0.88, 0.22), bodyMat, {
+                x: side * pillarX,
+                y: pillarCenterY - pillarH * 0.03,
+                z: cPillarZ,
+                tiltX: profile.rearGlassTilt * 0.40,
+            });
+        }
+        // Roof-to-body transition filler (covers the gap between narrow roof and wide body)
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(
+                (profile.bodyW - profile.roofW) / 2 + 0.06,
+                0.06,
+                profile.roofL * 0.85
+            ), bodyMat, {
+                x: side * ((profile.roofW + profile.bodyW) / 4),
+                y: beltTop + 0.02,
+                z: profile.roofZ,
+            });
+        }
+    }
+
+    // --- Bumpers (NASCAR: body-integrated, no chrome bumpers) ---
+    _addBumpers(profile, bodyMat, trimMat, chromeMat) {
+        const tailEnd = profile.tailZ - profile.tailL * 0.42;
+        const noseBottom = profile.noseY - profile.noseH / 2;
+        const floorTop = profile.floorY + profile.floorH / 2;
+        const frontBumperH = Math.max(0.08, noseBottom - floorTop + 0.06);
+        const frontBumperY = floorTop + frontBumperH / 2;
+
+        // Hood panel: long flat surface from body to nose tip
+        const bodyTop = profile.bodyY + profile.bodyH / 2;
+        const hoodStart = profile.bodyZ + profile.bodyL / 2 - 0.12;
+        const hoodEnd = profile.noseZ + profile.noseL * 0.40;
+        const hoodLength = hoodEnd - hoodStart;
+        const hoodZ = hoodStart + hoodLength / 2;
+        this._addMesh(
+            new THREE.BoxGeometry(profile.noseW * 0.94, 0.05, hoodLength),
+            bodyMat,
+            {
+                y: bodyTop + 0.01,
+                z: hoodZ,
+                tiltX: -0.03,
+            }
+        );
+
+        // Front fascia (body-color, flush with nose)
+        const fasciaH = profile.noseH * 0.35;
+        this._addMesh(
+            new THREE.BoxGeometry(profile.bodyW * 0.92, fasciaH, profile.noseL * 0.55),
+            bodyMat,
+            {
+                y: noseBottom + fasciaH * 0.3,
+                z: profile.noseZ + profile.noseL * 0.18,
+            }
+        );
+        // Front bumper cover (body-color, stock car style)
+        this._addMesh(new THREE.BoxGeometry(profile.bodyW * 0.96, frontBumperH, 0.10), bodyMat, {
+            y: frontBumperY,
+            z: profile.noseZ + profile.noseL * 0.42,
+        });
+        // Front lower valance (dark, aggressive)
+        this._addMesh(new THREE.BoxGeometry(profile.bodyW * 0.90, 0.06, 0.14), trimMat, {
+            y: floorTop + 0.02,
+            z: profile.noseZ + profile.noseL * 0.36,
+        });
+        // Rear bumper cover (body-color, flat panel)
+        const rearBumperY = floorTop + 0.10;
+        this._addMesh(new THREE.BoxGeometry(profile.bodyW * 0.94, 0.16, 0.10), bodyMat, {
+            y: rearBumperY,
+            z: tailEnd,
+        });
+        // Rear valance (dark lower panel)
+        this._addMesh(new THREE.BoxGeometry(profile.bodyW * 0.88, 0.06, 0.12), trimMat, {
+            y: floorTop + 0.02,
+            z: tailEnd + 0.04,
+        });
+    }
+
+    // --- Wheel arch trim (3-piece: top + front lip + rear lip) ---
+    _addWheelArches(profile, bodyMat) {
+        const R = profile.wheelR;
+        const T = profile.wheelT;
+        const archThick = 0.10;
+        const archDepth = T + 0.18;
+        const topY = profile.wheelY + R + 0.02;
+        const positions = [
+            { x: profile.wheelX, z: profile.wheelFrontZ },
+            { x: -profile.wheelX, z: profile.wheelFrontZ },
+            { x: profile.wheelX, z: profile.wheelRearZ },
+            { x: -profile.wheelX, z: profile.wheelRearZ },
+        ];
+        for (const pos of positions) {
+            // Top arch
+            this._addMesh(new THREE.BoxGeometry(archThick, 0.07, archDepth), bodyMat, {
+                x: pos.x,
+                y: topY,
+                z: pos.z,
+            });
+            // Front lip (vertical, wrapping forward)
+            this._addMesh(new THREE.BoxGeometry(archThick, R * 0.5, 0.06), bodyMat, {
+                x: pos.x,
+                y: topY - R * 0.22,
+                z: pos.z + archDepth * 0.45,
+            });
+            // Rear lip (vertical, wrapping rearward)
+            this._addMesh(new THREE.BoxGeometry(archThick, R * 0.5, 0.06), bodyMat, {
+                x: pos.x,
+                y: topY - R * 0.22,
+                z: pos.z - archDepth * 0.45,
+            });
+        }
+    }
+
+    // --- Front grille (NASCAR: wide air intake opening) ---
     _addGrille(profile, grilleMat, chromeMat) {
-        const grilleW = profile.bodyW * 0.58;
-        const grilleH = profile.bodyH * 0.32;
-        const grilleZ = profile.noseZ + profile.noseL * 0.38;
-        // Grille opening
+        const grilleW = profile.bodyW * 0.72;
+        const grilleH = profile.bodyH * 0.42;
+        const grilleZ = profile.noseZ + profile.noseL * 0.42;
+        // Wide grille opening
         this._addMesh(new THREE.BoxGeometry(grilleW, grilleH, 0.05), grilleMat, {
-            y: profile.bodyY - profile.bodyH * 0.18,
+            y: profile.bodyY - profile.bodyH * 0.12,
             z: grilleZ,
         });
-        // Chrome surround bar
-        this._addMesh(new THREE.BoxGeometry(grilleW + 0.06, 0.035, 0.06), chromeMat, {
-            y: profile.bodyY + profile.bodyH * 0.01,
+        // Upper grille bar (body color frame, not chrome)
+        this._addMesh(new THREE.BoxGeometry(grilleW + 0.04, 0.03, 0.05), chromeMat, {
+            y: profile.bodyY + profile.bodyH * 0.10,
             z: grilleZ,
-        });
-        // Lower chrome bar
-        this._addMesh(new THREE.BoxGeometry(grilleW * 0.7, 0.03, 0.05), chromeMat, {
-            y: profile.bodyY - profile.bodyH * 0.34,
-            z: grilleZ + 0.02,
         });
     }
 
-    // --- Door panel seam lines ---
+    // --- Door panel seam lines (NASCAR: single door line per side) ---
     _addDoorLines(profile, trimMat) {
-        const lineH = profile.bodyH + profile.beltH * 0.4;
-        const lineY = profile.bodyY + profile.bodyH * 0.08;
+        const lineH = profile.bodyH + profile.beltH * 0.5;
+        const lineY = profile.bodyY + profile.bodyH * 0.06;
         for (const side of [-1, 1]) {
-            // Front door seam
-            this._addMesh(new THREE.BoxGeometry(0.015, lineH, 0.015), trimMat, {
-                x: side * (profile.bodyW / 2 + 0.008),
+            // Single door seam (stock car: one door panel)
+            this._addMesh(new THREE.BoxGeometry(0.012, lineH, 0.012), trimMat, {
+                x: side * (profile.bodyW / 2 + 0.006),
                 y: lineY,
-                z: profile.roofZ + 0.25,
+                z: profile.roofZ + 0.10,
             });
-            // Rear door seam
-            this._addMesh(new THREE.BoxGeometry(0.015, lineH * 0.85, 0.015), trimMat, {
-                x: side * (profile.bodyW / 2 + 0.008),
-                y: lineY - 0.03,
-                z: profile.roofZ - 0.5,
+            // Rear quarter panel seam
+            this._addMesh(new THREE.BoxGeometry(0.012, lineH * 0.80, 0.012), trimMat, {
+                x: side * (profile.bodyW / 2 + 0.006),
+                y: lineY - 0.02,
+                z: profile.roofZ - 0.60,
             });
         }
     }
 
-    // --- Side skirts ---
+    // --- Side skirts (NASCAR: full-length, flush to ground) ---
     _addSideSkirts(profile, trimMat) {
+        const skirtL = profile.floorL * 0.82;
         for (const side of [-1, 1]) {
-            this._addMesh(new THREE.BoxGeometry(0.07, 0.1, profile.floorL * 0.65), trimMat, {
-                x: side * (profile.floorW / 2 + 0.015),
-                y: profile.floorY + 0.03,
-                z: 0,
+            // Main skirt panel
+            this._addMesh(new THREE.BoxGeometry(0.08, 0.14, skirtL), trimMat, {
+                x: side * (profile.bodyW / 2 + 0.02),
+                y: profile.floorY + 0.05,
+                z: -0.1,
+            });
+            // Lower lip (extends slightly outward)
+            this._addMesh(new THREE.BoxGeometry(0.12, 0.03, skirtL * 0.9), trimMat, {
+                x: side * (profile.bodyW / 2 + 0.04),
+                y: profile.floorY - 0.02,
+                z: -0.1,
             });
         }
     }
 
-    // --- Hood detail (scoop / crease / vent) ---
+    // --- Hood detail (NASCAR: long flat hood with subtle details) ---
     _addHoodDetail(profile, bodyMat, trimMat, chromeMat) {
-        // Hood crease line (center ridge)
-        this._addMesh(new THREE.BoxGeometry(0.04, 0.025, profile.noseL * 0.8), bodyMat, {
-            y: profile.noseY + profile.noseH * 0.3,
-            z: profile.noseZ - profile.noseL * 0.08,
-        });
+        // Twin hood creases (NASCAR style parallel lines)
+        for (const side of [-1, 1]) {
+            this._addMesh(new THREE.BoxGeometry(0.03, 0.02, profile.noseL * 0.9), bodyMat, {
+                x: side * 0.28,
+                y: profile.noseY + profile.noseH * 0.35,
+                z: profile.noseZ - profile.noseL * 0.02,
+            });
+        }
 
-        // Vehicle-specific hood details
+        // Vehicle-specific hood accents
         if (this.vehicleId === 'falcon') {
-            // Falcon: hood scoop
-            this._addMesh(new THREE.BoxGeometry(0.38, 0.08, 0.52), trimMat, {
-                y: profile.bodyY + profile.bodyH * 0.5 + 0.02,
-                z: profile.bodyZ + profile.bodyL * 0.22,
+            // Falcon: center hood vent
+            this._addMesh(new THREE.BoxGeometry(0.30, 0.05, 0.40), trimMat, {
+                y: profile.bodyY + profile.bodyH * 0.5 + 0.01,
+                z: profile.bodyZ + profile.bodyL * 0.24,
             });
         } else if (this.vehicleId === 'bolt') {
-            // Bolt: twin air vents
+            // Bolt: twin NACA ducts
             for (const side of [-1, 1]) {
-                this._addMesh(new THREE.BoxGeometry(0.2, 0.05, 0.36), trimMat, {
-                    x: side * 0.32,
+                this._addMesh(new THREE.BoxGeometry(0.16, 0.04, 0.30), trimMat, {
+                    x: side * 0.34,
                     y: profile.bodyY + profile.bodyH * 0.5 + 0.01,
-                    z: profile.bodyZ + profile.bodyL * 0.2,
+                    z: profile.bodyZ + profile.bodyL * 0.22,
                 });
             }
         } else if (this.vehicleId === 'ironclad') {
-            // Ironclad: power bulge
-            this._addMesh(new THREE.BoxGeometry(0.72, 0.06, 0.82), bodyMat, {
+            // Ironclad: wide power bulge
+            this._addMesh(new THREE.BoxGeometry(0.60, 0.05, 0.70), bodyMat, {
                 y: profile.bodyY + profile.bodyH * 0.5 + 0.02,
-                z: profile.bodyZ + profile.bodyL * 0.18,
-            });
-            // Chrome badge
-            this._addMesh(new THREE.BoxGeometry(0.14, 0.03, 0.08), chromeMat, {
-                y: profile.bodyY + profile.bodyH * 0.5 + 0.06,
-                z: profile.bodyZ + profile.bodyL * 0.18,
+                z: profile.bodyZ + profile.bodyL * 0.20,
             });
         }
     }
@@ -326,28 +485,34 @@ export class VehicleModel {
         }
     }
 
-    // --- Spoiler with chrome endplates ---
+    // --- Spoiler (NASCAR: large blade with tall vertical supports) ---
     _addSpoiler(profile, material, chromeMat) {
-        // Main blade
-        this._addMesh(new THREE.BoxGeometry(profile.spoilerW, 0.055, profile.spoilerL), material, {
+        // Main blade (wide, tall)
+        this._addMesh(new THREE.BoxGeometry(profile.spoilerW, 0.07, profile.spoilerL), material, {
             y: profile.spoilerY, z: profile.spoilerZ,
         });
-        // Lip edge (chrome strip on top)
-        this._addMesh(new THREE.BoxGeometry(profile.spoilerW - 0.04, 0.02, 0.03), chromeMat, {
-            y: profile.spoilerY + 0.035,
-            z: profile.spoilerZ - profile.spoilerL * 0.35,
+        // Blade upper edge strip
+        this._addMesh(new THREE.BoxGeometry(profile.spoilerW - 0.02, 0.025, 0.04), chromeMat, {
+            y: profile.spoilerY + 0.045,
+            z: profile.spoilerZ - profile.spoilerL * 0.38,
+        });
+        // Blade lip (slight angle for downforce look)
+        this._addMesh(new THREE.BoxGeometry(profile.spoilerW, 0.20, 0.04), material, {
+            y: profile.spoilerY + 0.13,
+            z: profile.spoilerZ - profile.spoilerL * 0.42,
+            tiltX: 0.18,
         });
         for (const side of [-1, 1]) {
-            // Supports
-            this._addMesh(new THREE.BoxGeometry(0.07, profile.spoilerSupportH, 0.07), material, {
+            // Tall vertical supports (NASCAR style)
+            this._addMesh(new THREE.BoxGeometry(0.08, profile.spoilerSupportH, 0.10), material, {
                 x: side * profile.spoilerSupportX,
                 y: profile.spoilerSupportY,
                 z: profile.spoilerZ,
             });
-            // Endplates
-            this._addMesh(new THREE.BoxGeometry(0.03, 0.12, profile.spoilerL + 0.04), chromeMat, {
-                x: side * (profile.spoilerW / 2),
-                y: profile.spoilerY,
+            // Large endplates (taller than before)
+            this._addMesh(new THREE.BoxGeometry(0.03, 0.28, profile.spoilerL + 0.08), material, {
+                x: side * (profile.spoilerW / 2 + 0.01),
+                y: profile.spoilerY + 0.04,
                 z: profile.spoilerZ,
             });
         }
@@ -675,84 +840,104 @@ export class VehicleModel {
     }
 
     _getProfile(vehicleId) {
+        // NASCAR stock car inspired profiles — low, wide, aggressive
         switch (vehicleId) {
             case 'bolt':
+                // Bolt: lightweight stock car, slightly narrower / lower
                 return {
                     accentColor: 0x222200,
-                    floorW: 2.08, floorH: 0.22, floorL: 4.7, floorY: 0.25,
-                    sidePodW: 0.32, sidePodH: 0.22, sidePodL: 2.1, sidePodX: 1.0, sidePodY: 0.36, sidePodZ: 0.1,
-                    bodyW: 1.98, bodyH: 0.48, bodyL: 3.62, bodyY: 0.52, bodyZ: -0.02,
-                    beltW: 1.76, beltH: 0.16, beltL: 2.72, beltY: 0.78, beltZ: -0.1,
-                    roofW: 1.52, roofH: 0.38, roofL: 1.95, roofY: 1.04, roofZ: -0.18,
-                    rearDeckW: 1.84, rearDeckH: 0.22, rearDeckL: 0.92, rearDeckY: 0.88, rearDeckZ: -1.62,
-                    noseW: 1.84, noseH: 0.5, noseL: 1.18, noseY: 0.54, noseZ: 2.02, noseTilt: -0.06,
-                    tailW: 1.9, tailH: 0.42, tailL: 0.94, tailY: 0.8, tailZ: -2.05, tailTilt: 0.04,
-                    windowW: 1.36, windowH: 0.24, windowL: 0.98, windowY: 1.06, windowZ: 0.72, windowTilt: -0.34,
-                    rearGlassW: 1.3, rearGlassH: 0.22, rearGlassL: 0.8, rearGlassY: 1.0, rearGlassZ: -0.7, rearGlassTilt: 0.26,
-                    splitterW: 1.98, splitterL: 0.48, splitterY: 0.12, splitterZ: 2.36,
-                    diffuserW: 1.78, diffuserL: 0.38, diffuserY: 0.14, diffuserZ: -2.34,
-                    mirrorX: 0.96, mirrorY: 0.95, mirrorZ: 0.44,
-                    frontFenderW: 0.42, frontFenderH: 0.3, frontFenderL: 0.82, frontFenderX: 1.02, frontFenderY: 0.55, frontFenderZ: 1.22,
-                    rearFenderW: 0.48, rearFenderH: 0.34, rearFenderL: 0.92, rearFenderX: 1.04, rearFenderY: 0.58, rearFenderZ: -1.28,
+                    // Flat floor / chassis
+                    floorW: 2.14, floorH: 0.10, floorL: 5.2, floorY: 0.18,
+                    // Side pods: subtle body extensions near doors
+                    sidePodW: 0.18, sidePodH: 0.18, sidePodL: 2.6, sidePodX: 1.08, sidePodY: 0.32, sidePodZ: -0.1,
+                    // Main body: wide, low slab
+                    bodyW: 2.10, bodyH: 0.38, bodyL: 4.0, bodyY: 0.42, bodyZ: -0.06,
+                    // Belt line: shoulder crease
+                    beltW: 2.04, beltH: 0.10, beltL: 3.4, beltY: 0.64, beltZ: -0.12,
+                    // Roof: narrow greenhouse, very low
+                    roofW: 1.32, roofH: 0.30, roofL: 1.6, roofY: 0.88, roofZ: -0.30,
+                    // Rear deck: short trunk lid
+                    rearDeckW: 2.00, rearDeckH: 0.14, rearDeckL: 0.80, rearDeckY: 0.72, rearDeckZ: -1.80,
+                    // Nose: long, low slope
+                    noseW: 2.04, noseH: 0.36, noseL: 1.50, noseY: 0.42, noseZ: 2.30, noseTilt: -0.10,
+                    // Tail: short, steep rise
+                    tailW: 2.06, tailH: 0.30, tailL: 0.70, tailY: 0.68, tailZ: -2.20, tailTilt: 0.06,
+                    // Windows: steep windshield
+                    windowW: 1.18, windowH: 0.22, windowL: 0.70, windowY: 0.90, windowZ: 0.58, windowTilt: -0.42,
+                    rearGlassW: 1.14, rearGlassH: 0.18, rearGlassL: 0.60, rearGlassY: 0.86, rearGlassZ: -0.82, rearGlassTilt: 0.32,
+                    // Aero: wide splitter, diffuser
+                    splitterW: 2.24, splitterL: 0.60, splitterY: 0.10, splitterZ: 2.72,
+                    diffuserW: 2.10, diffuserL: 0.44, diffuserY: 0.10, diffuserZ: -2.56,
+                    // Mirrors
+                    mirrorX: 0.80, mirrorY: 0.84, mirrorZ: 0.34,
+                    // Fenders: wide, bulging over wheels
+                    frontFenderW: 0.52, frontFenderH: 0.28, frontFenderL: 1.00, frontFenderX: 1.10, frontFenderY: 0.46, frontFenderZ: 1.40,
+                    rearFenderW: 0.56, rearFenderH: 0.32, rearFenderL: 1.10, rearFenderX: 1.12, rearFenderY: 0.48, rearFenderZ: -1.44,
                     fenderAccent: true, rearFenderAccent: true,
-                    spoilerW: 1.96, spoilerL: 0.34, spoilerY: 1.16, spoilerZ: -2.16,
-                    spoilerSupportX: 0.78, spoilerSupportY: 0.98, spoilerSupportH: 0.32,
-                    exhaustX: 0.34, exhaustY: 0.34, exhaustZ: -2.38,
-                    wheelR: 0.3, wheelT: 0.28, wheelX: 1.04, wheelY: 0.3,
-                    wheelFrontZ: 1.36, wheelRearZ: -1.42,
-                    lightY: 0.5, lightFrontX: 0.72, lightFrontZ: 2.67, lightRearX: 0.68, lightRearZ: -2.28,
+                    // Spoiler: large NASCAR blade
+                    spoilerW: 2.10, spoilerL: 0.42, spoilerY: 1.08, spoilerZ: -2.34,
+                    spoilerSupportX: 0.82, spoilerSupportY: 0.86, spoilerSupportH: 0.40,
+                    // Exhaust
+                    exhaustX: 0.34, exhaustY: 0.24, exhaustZ: -2.60,
+                    // Wheels: lower, wider track
+                    wheelR: 0.30, wheelT: 0.30, wheelX: 1.08, wheelY: 0.28,
+                    wheelFrontZ: 1.50, wheelRearZ: -1.56,
+                    // Lights
+                    lightY: 0.40, lightFrontX: 0.74, lightFrontZ: 3.02, lightRearX: 0.72, lightRearZ: -2.44,
                 };
             case 'ironclad':
+                // Ironclad: heaviest stock car, widest/most muscular
                 return {
                     accentColor: 0x004433,
-                    floorW: 2.2, floorH: 0.25, floorL: 4.45, floorY: 0.27,
-                    sidePodW: 0.38, sidePodH: 0.28, sidePodL: 2.32, sidePodX: 1.04, sidePodY: 0.4, sidePodZ: -0.02,
-                    bodyW: 2.08, bodyH: 0.6, bodyL: 3.35, bodyY: 0.58, bodyZ: -0.1,
-                    beltW: 1.94, beltH: 0.2, beltL: 2.76, beltY: 0.88, beltZ: -0.18,
-                    roofW: 1.78, roofH: 0.52, roofL: 2.16, roofY: 1.14, roofZ: -0.3,
-                    rearDeckW: 1.96, rearDeckH: 0.28, rearDeckL: 1.0, rearDeckY: 1.0, rearDeckZ: -1.56,
-                    noseW: 2.0, noseH: 0.62, noseL: 1.0, noseY: 0.58, noseZ: 1.84, noseTilt: -0.03,
-                    tailW: 1.98, tailH: 0.46, tailL: 0.82, tailY: 0.92, tailZ: -2.0, tailTilt: 0.02,
-                    windowW: 1.55, windowH: 0.3, windowL: 1.02, windowY: 1.14, windowZ: 0.56, windowTilt: -0.22,
-                    rearGlassW: 1.52, rearGlassH: 0.24, rearGlassL: 0.84, rearGlassY: 1.08, rearGlassZ: -0.78, rearGlassTilt: 0.18,
-                    splitterW: 2.04, splitterL: 0.42, splitterY: 0.12, splitterZ: 2.14,
-                    diffuserW: 1.92, diffuserL: 0.36, diffuserY: 0.14, diffuserZ: -2.18,
-                    mirrorX: 1.02, mirrorY: 1.04, mirrorZ: 0.32,
-                    frontFenderW: 0.5, frontFenderH: 0.38, frontFenderL: 0.78, frontFenderX: 1.06, frontFenderY: 0.62, frontFenderZ: 1.1,
-                    rearFenderW: 0.54, rearFenderH: 0.44, rearFenderL: 0.96, rearFenderX: 1.08, rearFenderY: 0.68, rearFenderZ: -1.18,
+                    floorW: 2.28, floorH: 0.12, floorL: 5.1, floorY: 0.20,
+                    sidePodW: 0.22, sidePodH: 0.22, sidePodL: 2.8, sidePodX: 1.14, sidePodY: 0.36, sidePodZ: -0.08,
+                    bodyW: 2.22, bodyH: 0.44, bodyL: 3.8, bodyY: 0.46, bodyZ: -0.10,
+                    beltW: 2.16, beltH: 0.12, beltL: 3.2, beltY: 0.70, beltZ: -0.16,
+                    roofW: 1.42, roofH: 0.34, roofL: 1.70, roofY: 0.92, roofZ: -0.34,
+                    rearDeckW: 2.14, rearDeckH: 0.16, rearDeckL: 0.86, rearDeckY: 0.78, rearDeckZ: -1.76,
+                    noseW: 2.18, noseH: 0.42, noseL: 1.40, noseY: 0.46, noseZ: 2.20, noseTilt: -0.08,
+                    tailW: 2.18, tailH: 0.34, tailL: 0.72, tailY: 0.74, tailZ: -2.16, tailTilt: 0.05,
+                    windowW: 1.28, windowH: 0.24, windowL: 0.74, windowY: 0.96, windowZ: 0.50, windowTilt: -0.38,
+                    rearGlassW: 1.24, rearGlassH: 0.20, rearGlassL: 0.64, rearGlassY: 0.90, rearGlassZ: -0.86, rearGlassTilt: 0.28,
+                    splitterW: 2.36, splitterL: 0.58, splitterY: 0.10, splitterZ: 2.58,
+                    diffuserW: 2.20, diffuserL: 0.46, diffuserY: 0.10, diffuserZ: -2.48,
+                    mirrorX: 0.84, mirrorY: 0.88, mirrorZ: 0.28,
+                    frontFenderW: 0.58, frontFenderH: 0.34, frontFenderL: 1.04, frontFenderX: 1.16, frontFenderY: 0.50, frontFenderZ: 1.34,
+                    rearFenderW: 0.62, rearFenderH: 0.38, rearFenderL: 1.14, rearFenderX: 1.18, rearFenderY: 0.54, rearFenderZ: -1.38,
                     fenderAccent: false, rearFenderAccent: false,
-                    spoilerW: 1.72, spoilerL: 0.26, spoilerY: 1.22, spoilerZ: -1.96,
-                    spoilerSupportX: 0.66, spoilerSupportY: 1.06, spoilerSupportH: 0.28,
-                    exhaustX: 0.38, exhaustY: 0.38, exhaustZ: -2.24,
-                    wheelR: 0.34, wheelT: 0.3, wheelX: 1.08, wheelY: 0.33,
-                    wheelFrontZ: 1.24, wheelRearZ: -1.24,
-                    lightY: 0.58, lightFrontX: 0.76, lightFrontZ: 2.40, lightRearX: 0.72, lightRearZ: -2.0,
+                    spoilerW: 2.20, spoilerL: 0.44, spoilerY: 1.14, spoilerZ: -2.28,
+                    spoilerSupportX: 0.86, spoilerSupportY: 0.90, spoilerSupportH: 0.44,
+                    exhaustX: 0.40, exhaustY: 0.26, exhaustZ: -2.54,
+                    wheelR: 0.34, wheelT: 0.32, wheelX: 1.14, wheelY: 0.32,
+                    wheelFrontZ: 1.44, wheelRearZ: -1.48,
+                    lightY: 0.44, lightFrontX: 0.80, lightFrontZ: 2.86, lightRearX: 0.76, lightRearZ: -2.36,
                 };
             default:
+                // Falcon (default): balanced NASCAR stock car
                 return {
                     accentColor: 0x330022,
-                    floorW: 2.06, floorH: 0.22, floorL: 4.48, floorY: 0.25,
-                    sidePodW: 0.3, sidePodH: 0.22, sidePodL: 2.04, sidePodX: 0.98, sidePodY: 0.37, sidePodZ: 0.04,
-                    bodyW: 1.98, bodyH: 0.52, bodyL: 3.48, bodyY: 0.53, bodyZ: -0.06,
-                    beltW: 1.8, beltH: 0.16, beltL: 2.74, beltY: 0.8, beltZ: -0.14,
-                    roofW: 1.62, roofH: 0.44, roofL: 2.08, roofY: 1.02, roofZ: -0.18,
-                    rearDeckW: 1.88, rearDeckH: 0.22, rearDeckL: 0.88, rearDeckY: 0.92, rearDeckZ: -1.52,
-                    noseW: 1.9, noseH: 0.54, noseL: 1.08, noseY: 0.55, noseZ: 1.94, noseTilt: -0.05,
-                    tailW: 1.9, tailH: 0.42, tailL: 0.86, tailY: 0.84, tailZ: -1.98, tailTilt: 0.03,
-                    windowW: 1.42, windowH: 0.26, windowL: 1.02, windowY: 1.03, windowZ: 0.64, windowTilt: -0.28,
-                    rearGlassW: 1.36, rearGlassH: 0.22, rearGlassL: 0.82, rearGlassY: 0.98, rearGlassZ: -0.74, rearGlassTilt: 0.22,
-                    splitterW: 1.96, splitterL: 0.44, splitterY: 0.12, splitterZ: 2.2,
-                    diffuserW: 1.82, diffuserL: 0.36, diffuserY: 0.14, diffuserZ: -2.18,
-                    mirrorX: 0.94, mirrorY: 0.97, mirrorZ: 0.38,
-                    frontFenderW: 0.4, frontFenderH: 0.32, frontFenderL: 0.8, frontFenderX: 1.0, frontFenderY: 0.58, frontFenderZ: 1.18,
-                    rearFenderW: 0.46, rearFenderH: 0.36, rearFenderL: 0.9, rearFenderX: 1.02, rearFenderY: 0.6, rearFenderZ: -1.22,
+                    floorW: 2.20, floorH: 0.10, floorL: 5.16, floorY: 0.18,
+                    sidePodW: 0.20, sidePodH: 0.20, sidePodL: 2.7, sidePodX: 1.10, sidePodY: 0.34, sidePodZ: -0.06,
+                    bodyW: 2.16, bodyH: 0.40, bodyL: 3.9, bodyY: 0.44, bodyZ: -0.08,
+                    beltW: 2.10, beltH: 0.10, beltL: 3.3, beltY: 0.66, beltZ: -0.14,
+                    roofW: 1.36, roofH: 0.32, roofL: 1.64, roofY: 0.90, roofZ: -0.32,
+                    rearDeckW: 2.06, rearDeckH: 0.14, rearDeckL: 0.82, rearDeckY: 0.74, rearDeckZ: -1.78,
+                    noseW: 2.10, noseH: 0.38, noseL: 1.46, noseY: 0.44, noseZ: 2.26, noseTilt: -0.09,
+                    tailW: 2.12, tailH: 0.32, tailL: 0.70, tailY: 0.70, tailZ: -2.18, tailTilt: 0.05,
+                    windowW: 1.22, windowH: 0.22, windowL: 0.72, windowY: 0.92, windowZ: 0.54, windowTilt: -0.40,
+                    rearGlassW: 1.18, rearGlassH: 0.18, rearGlassL: 0.62, rearGlassY: 0.88, rearGlassZ: -0.84, rearGlassTilt: 0.30,
+                    splitterW: 2.30, splitterL: 0.58, splitterY: 0.10, splitterZ: 2.66,
+                    diffuserW: 2.14, diffuserL: 0.44, diffuserY: 0.10, diffuserZ: -2.52,
+                    mirrorX: 0.82, mirrorY: 0.86, mirrorZ: 0.32,
+                    frontFenderW: 0.54, frontFenderH: 0.30, frontFenderL: 1.02, frontFenderX: 1.12, frontFenderY: 0.48, frontFenderZ: 1.38,
+                    rearFenderW: 0.58, rearFenderH: 0.34, rearFenderL: 1.12, rearFenderX: 1.14, rearFenderY: 0.52, rearFenderZ: -1.40,
                     fenderAccent: false, rearFenderAccent: true,
-                    spoilerW: 1.82, spoilerL: 0.3, spoilerY: 1.16, spoilerZ: -2.02,
-                    spoilerSupportX: 0.7, spoilerSupportY: 0.99, spoilerSupportH: 0.3,
-                    exhaustX: 0.34, exhaustY: 0.34, exhaustZ: -2.24,
-                    wheelR: 0.31, wheelT: 0.27, wheelX: 1.01, wheelY: 0.31,
-                    wheelFrontZ: 1.3, wheelRearZ: -1.32,
-                    lightY: 0.54, lightFrontX: 0.72, lightFrontZ: 2.54, lightRearX: 0.68, lightRearZ: -2.12,
+                    spoilerW: 2.14, spoilerL: 0.44, spoilerY: 1.10, spoilerZ: -2.30,
+                    spoilerSupportX: 0.84, spoilerSupportY: 0.88, spoilerSupportH: 0.42,
+                    exhaustX: 0.36, exhaustY: 0.24, exhaustZ: -2.56,
+                    wheelR: 0.32, wheelT: 0.30, wheelX: 1.10, wheelY: 0.30,
+                    wheelFrontZ: 1.46, wheelRearZ: -1.52,
+                    lightY: 0.42, lightFrontX: 0.76, lightFrontZ: 2.96, lightRearX: 0.74, lightRearZ: -2.40,
                 };
         }
     }
