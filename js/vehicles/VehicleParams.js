@@ -4,7 +4,7 @@ export const VEHICLE_PRESETS = {
     falcon: {
         id: 'falcon',
         name: 'Falcon MK-I',
-        color: 0xff0055,
+        color: 0xff2266,
         maxSpeedKmh: 286,
         accelerationKmh: 126,
         handling: 1.0,
@@ -27,7 +27,7 @@ export const VEHICLE_PRESETS = {
     bolt: {
         id: 'bolt',
         name: 'Bolt RS',
-        color: 0xddff00,
+        color: 0xeeff22,
         maxSpeedKmh: 326,
         accelerationKmh: 98,
         handling: 0.84,
@@ -50,7 +50,7 @@ export const VEHICLE_PRESETS = {
     ironclad: {
         id: 'ironclad',
         name: 'Ironclad GT',
-        color: 0x00ffcc,
+        color: 0x33ffdd,
         maxSpeedKmh: 270,
         accelerationKmh: 148,
         handling: 1.22,
