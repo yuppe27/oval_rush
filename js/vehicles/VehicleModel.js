@@ -19,8 +19,8 @@ export class VehicleModel {
         // --- Materials ---
         const bodyMat = new THREE.MeshStandardMaterial({
             color: this.primaryColor,
-            roughness: 0.25,
-            metalness: 0.7,
+            roughness: 0.12,
+            metalness: 0.82,
         });
         const accentMat = new THREE.MeshStandardMaterial({
             color: profile.accentColor,
@@ -676,7 +676,7 @@ export class VehicleModel {
         switch (vehicleId) {
             case 'bolt':
                 return {
-                    accentColor: 0x21262b,
+                    accentColor: 0x111418,
                     floorW: 2.08, floorH: 0.22, floorL: 4.7, floorY: 0.25,
                     sidePodW: 0.32, sidePodH: 0.22, sidePodL: 2.1, sidePodX: 1.0, sidePodY: 0.36, sidePodZ: 0.1,
                     bodyW: 1.98, bodyH: 0.48, bodyL: 3.62, bodyY: 0.52, bodyZ: -0.02,
@@ -702,7 +702,7 @@ export class VehicleModel {
                 };
             case 'ironclad':
                 return {
-                    accentColor: 0x643b1b,
+                    accentColor: 0xff6600,
                     floorW: 2.2, floorH: 0.25, floorL: 4.45, floorY: 0.27,
                     sidePodW: 0.38, sidePodH: 0.28, sidePodL: 2.32, sidePodX: 1.04, sidePodY: 0.4, sidePodZ: -0.02,
                     bodyW: 2.08, bodyH: 0.6, bodyL: 3.35, bodyY: 0.58, bodyZ: -0.1,
@@ -728,7 +728,7 @@ export class VehicleModel {
                 };
             default:
                 return {
-                    accentColor: 0xf1f1f1,
+                    accentColor: 0xffffff,
                     floorW: 2.06, floorH: 0.22, floorL: 4.48, floorY: 0.25,
                     sidePodW: 0.3, sidePodH: 0.22, sidePodL: 2.04, sidePodX: 0.98, sidePodY: 0.37, sidePodZ: 0.04,
                     bodyW: 1.98, bodyH: 0.52, bodyL: 3.48, bodyY: 0.53, bodyZ: -0.06,

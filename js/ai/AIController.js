@@ -669,6 +669,18 @@ export class AIController {
             ? Math.max(0, player?.autoDriveSpeed ?? Math.abs(player?.speed ?? 0))
             : null;
 
+        // ラバーバンドはプレイヤーに最も近い2台のみ適用し、終盤の集団化を防ぐ
+        const RIVAL_RB_COUNT = 2;
+        const _rbEligible = new Set(
+            [...this.vehicles]
+                .filter(v => !v.completed && !v.isCrashed)
+                .sort((a, b) =>
+                    Math.abs(this._absProgress(a.lap, a.progressT) - playerAbs) -
+                    Math.abs(this._absProgress(b.lap, b.progressT) - playerAbs)
+                )
+                .slice(0, RIVAL_RB_COUNT)
+        );
+
         for (const ai of this.vehicles) {
             if (ai.shiftCooldownTimer > 0) {
                 ai.shiftCooldownTimer = Math.max(0, ai.shiftCooldownTimer - dt);
@@ -761,7 +773,8 @@ export class AIController {
                     ? Math.min(ai.maxSpeed * 1.02, this.aiSpeedCap)
                     : Math.min(ai.maxSpeed, aheadPlayerMaxSpeedCap);
                 const wpSpeed = wp ? wp.suggestedSpeed * ai.paceFactor * driftPenalty : effectiveMaxSpeed;
-                const rbRaw = this._getRubberBandFactor(aiAbs, playerAbs);
+                // ラバーバンドはプレイヤーに近い2台のみ適用。他の車は自然なペースを維持
+                const rbRaw = _rbEligible.has(ai) ? this._getRubberBandFactor(aiAbs, playerAbs) : 1.0;
                 // Dampen rubber-band for slower cars so pace differences survive.
                 // Fast cars (pace ~1.16) get full rubber-band; slow cars (pace ~0.78) get ~40%.
                 const rbDampen = THREE.MathUtils.lerp(0.4, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1));
