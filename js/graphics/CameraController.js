@@ -323,10 +323,11 @@ export class CameraController {
         // Look at slightly above centre of the car for heroic framing
         const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.6, vPos.z);
 
-        // Smooth transition (especially for the first frame after celebration)
-        const lerpFactor = 1 - Math.exp(-4.0 * dt);
-        this._smoothPosition.lerp(camPos, lerpFactor);
-        this._smoothLookAt.lerp(lookAt, lerpFactor);
+        // Position tracks the car directly so the camera never falls behind.
+        // LookAt uses gentle smoothing for cinematic stability.
+        this._smoothPosition.copy(camPos);
+        const lookLerp = 1 - Math.exp(-10.0 * dt);
+        this._smoothLookAt.lerp(lookAt, lookLerp);
 
         this.camera.position.copy(this._smoothPosition);
         this.camera.lookAt(this._smoothLookAt);
