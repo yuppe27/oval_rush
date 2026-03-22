@@ -2467,7 +2467,7 @@ export class CourseBuilder {
         canvas.width = 512;
         canvas.height = 224;
         const ctx = canvas.getContext('2d');
-        const dir = turnSign >= 0 ? -1 : 1;
+        const dir = turnSign >= 0 ? 1 : -1;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#f3d24f';
