@@ -553,6 +553,7 @@ export class CourseBuilder {
             return;
         }
         this._buildStadiumScenery();
+        this._buildCurveWarningSigns();
     }
 
     _buildStadiumScenery() {
@@ -2026,6 +2027,28 @@ export class CourseBuilder {
 
     _buildCurveWarningSigns() {
         const profile = {
+            thunder: {
+                threshold: 0.72,
+                sCurveThreshold: 0.50,
+                leadMeters: 52,
+                sCurveLeadMeters: 60,
+                signSpacingMeters: 24,
+                minSpacingMeters: 200,
+                maxZoneShiftMeters: 36,
+                sCurveMaxGapMeters: 200,
+                lateralOffset: 6.2,
+                boardWidth: 10.0,
+                boardHeight: 4.0,
+                postHeight: 3.6,
+                minSigns: 2,
+                maxSigns: 3,
+                sCurveMinSigns: 1,
+                sCurveMaxSigns: 2,
+                severityRef: 1.10,
+                sCurveSeverityRef: 0.98,
+                skipPeakZoneKeys: [],
+                avoidSignZoneKeys: [],
+            },
             seaside: {
                 threshold: 0.9,
                 sCurveThreshold: 0.59,
