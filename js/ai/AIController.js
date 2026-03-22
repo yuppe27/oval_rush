@@ -770,10 +770,12 @@ export class AIController {
                 ai.lastWaypointSpeed = postFinishCruiseSpeed;
                 ai.lastRubberBand = 1.0;
                 ai.lastDesiredSpeed = ai.speed;
-                // Gradually return lane offset to a natural cruise position
-                const neutralLane = ai.preferredLaneBias * 1.2;
+                // Gradually return lane offset to a natural cruise position.
+                // _applyCruiseAvoidance (called later) may override laneOffset
+                // when the car needs to dodge the player or other AI.
+                ai._cruiseNeutralLane = ai.preferredLaneBias * 1.2;
                 const laneLerp = 1 - Math.exp(-1.5 * dt);
-                ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, neutralLane, laneLerp);
+                ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai._cruiseNeutralLane, laneLerp);
                 ai.laneTarget = ai.laneOffset;
             } else {
                 const driftPenalty = ai.isDrifting
@@ -853,6 +855,8 @@ export class AIController {
             this._breakSideBySideFormations(dt, player);
             this._applyTrafficSpacing(dt);
             this._resolveAICollisions(player, dt);
+        } else {
+            this._applyCruiseAvoidance(dt, player);
         }
         this._updateTransforms(raceState);
     }
@@ -1460,6 +1464,103 @@ export class AIController {
                     * THREE.MathUtils.lerp(1.0, 0.80, aggression)
                     * THREE.MathUtils.lerp(0.5, 1.5, dangerN);
                 ai.speed = Math.max(nearestAhead.speed * 0.90, ai.speed - relativeSpeed * emergencyBrake);
+            }
+        }
+    }
+
+    /**
+     * 巡航モード（ポストレース）用の間隔制御とプレイヤー回避。
+     * レース中の複雑なロジックと異なり、穏やかな速度・車線調整のみ行う。
+     */
+    _applyCruiseAvoidance(dt, player) {
+        const N = this.courseBuilder.sampledPoints.length;
+        const tc = this.tuning.collision;
+        const cruiseSpacingT = 0.012;     // AI同士の前方監視距離（トラック進行率）
+        const cruiseLaneThreat = 2.8;     // 車線が脅威とみなされる幅
+        const playerDetectT = 0.018;      // プレイヤー検知距離
+        const playerLaneThreat = 3.5;     // プレイヤーに対する車線脅威幅
+        const playerAvoidLaneShift = 2.2; // プレイヤー回避時の車線移動量
+        const playerSlowFactor = 0.92;    // プレイヤー接近時の減速率
+
+        // プレイヤーのトラック位置
+        const playerT = player ? (player.trackT ?? 0) : 0;
+        // プレイヤーの車線オフセット推定（中央基準: 0）
+        const playerLaneEstimate = 0;
+
+        for (const ai of this.vehicles) {
+            if (ai.crashTimer > 0) continue;
+
+            const sampleIdx = Math.floor(wrap01(ai.progressT) * N) % N;
+            const sp = this.courseBuilder.sampledPoints[sampleIdx];
+            const laneLimit = Math.max(0.8, (sp.width * 0.5) - this.tuning.lane.wallMargin);
+
+            // ── AI同士の間隔制御 ──
+            let nearestAheadAI = null;
+            let nearestAheadDelta = Infinity;
+
+            for (const other of this.vehicles) {
+                if (other === ai || other.crashTimer > 0) continue;
+                const aheadDelta = wrap01(other.progressT - ai.progressT);
+                if (aheadDelta <= 1e-4 || aheadDelta >= cruiseSpacingT) continue;
+                const laneGap = Math.abs(ai.laneOffset - other.laneOffset);
+                if (laneGap >= cruiseLaneThreat) continue;
+                if (aheadDelta < nearestAheadDelta) {
+                    nearestAheadAI = other;
+                    nearestAheadDelta = aheadDelta;
+                }
+            }
+
+            if (nearestAheadAI) {
+                // 前方AIに追いつきそうなら穏やかに減速
+                const relSpeed = ai.speed - nearestAheadAI.speed;
+                if (relSpeed > 0) {
+                    const closeN = 1 - THREE.MathUtils.clamp(nearestAheadDelta / cruiseSpacingT, 0, 1);
+                    const brake = relSpeed * 0.08 * closeN * (dt * 60);
+                    ai.speed = Math.max(nearestAheadAI.speed, ai.speed - brake);
+                }
+                // 車線分離: 近い側と逆方向へ穏やかに移動
+                const laneDelta = ai.laneOffset - nearestAheadAI.laneOffset;
+                const side = Math.abs(laneDelta) > 0.1 ? Math.sign(laneDelta) : (ai.id % 2 === 0 ? 1 : -1);
+                const separateTarget = THREE.MathUtils.clamp(
+                    nearestAheadAI.laneOffset + side * 2.0,
+                    -laneLimit, laneLimit
+                );
+                const sepLerp = 1 - Math.exp(-1.0 * dt);
+                ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, separateTarget, sepLerp);
+                ai.laneTarget = ai.laneOffset;
+            }
+
+            // ── プレイヤー回避 ──
+            if (!player) continue;
+
+            const aheadOfPlayer = wrap01(ai.progressT - playerT);
+            const behindPlayer = wrap01(playerT - ai.progressT);
+            const distToPlayer = Math.min(aheadOfPlayer, behindPlayer);
+
+            if (distToPlayer >= playerDetectT) continue;
+
+            const laneGapToPlayer = Math.abs(ai.laneOffset - playerLaneEstimate);
+            if (laneGapToPlayer >= playerLaneThreat) continue;
+
+            // プレイヤーの近くにいる → 車線を変えて回避
+            const laneDir = ai.laneOffset >= playerLaneEstimate ? 1 : -1;
+            const avoidTarget = THREE.MathUtils.clamp(
+                playerLaneEstimate + laneDir * playerAvoidLaneShift,
+                -laneLimit, laneLimit
+            );
+            const avoidLerp = 1 - Math.exp(-2.0 * dt);
+            ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, avoidTarget, avoidLerp);
+            ai.laneTarget = ai.laneOffset;
+
+            // AIがプレイヤーのすぐ前にいる場合は少し加速して離れる
+            if (aheadOfPlayer < behindPlayer && aheadOfPlayer < 0.006) {
+                const boostLerp = 1 - Math.exp(-1.5 * dt);
+                const boostedSpeed = (ai.postFinishCruiseSpeed || ai.speed) * 1.08;
+                ai.speed = THREE.MathUtils.lerp(ai.speed, boostedSpeed, boostLerp);
+            }
+            // AIがプレイヤーのすぐ後ろにいて追いつきそうなら減速
+            else if (behindPlayer < aheadOfPlayer && behindPlayer < 0.008 && ai.speed > player.speed) {
+                ai.speed *= THREE.MathUtils.lerp(1.0, playerSlowFactor, (dt * 60) * 0.5);
             }
         }
     }
