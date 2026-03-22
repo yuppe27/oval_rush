@@ -24,6 +24,7 @@ export class CameraController {
         this._lateralOffset = 0;
         this._initialized = false;
         this._prevRaceState = null;
+        this._smoothCruiseRot = null; // smoothed heading for post-finish cruise cam
         this.mode = 'chase'; // chase | bumper | overhead
         this.modeOrder = ['chase', 'bumper', 'overhead'];
 
@@ -187,6 +188,10 @@ export class CameraController {
         }
 
         if (race && raceState === 'finished') {
+            // Reset smoothed heading on first frame entering cruise
+            if (this._prevRaceState !== 'finished') {
+                this._smoothCruiseRot = null;
+            }
             this._updatePostFinishCruiseCamera(dt, vehicle);
             this._prevRaceState = raceState;
             return;
@@ -304,34 +309,39 @@ export class CameraController {
         const vPos = vehicle.position;
         const vRot = vehicle.rotation;
 
-        // Forward / right directions of the car
-        const fwdX = Math.sin(vRot);
-        const fwdZ = Math.cos(vRot);
-        const rightX = Math.cos(vRot);
-        const rightZ = -Math.sin(vRot);
+        // Smooth the car's heading to prevent camera jumps on curves.
+        // Angle wrapping is handled via sin/cos decomposition.
+        if (this._smoothCruiseRot === null) {
+            this._smoothCruiseRot = vRot;
+        } else {
+            // Lerp via shortest-arc to handle ±π wrap-around
+            let diff = vRot - this._smoothCruiseRot;
+            if (diff > Math.PI) diff -= Math.PI * 2;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            this._smoothCruiseRot += diff * Math.min(1, 3.0 * dt);
+        }
+        const sRot = this._smoothCruiseRot;
+
+        // Forward / right directions from smoothed heading
+        const fwdX = Math.sin(sRot);
+        const fwdZ = Math.cos(sRot);
+        const rightX = Math.cos(sRot);
+        const rightZ = -Math.sin(sRot);
 
         // Camera placement: ahead + right + elevated (pulled back for wider shot)
         const frontDist = 10.0;  // meters ahead of the car
         const lateralDist = 4.5; // meters to the right
         const height = 4.0;      // meters above the car
 
-        const camPos = new THREE.Vector3(
-            vPos.x + fwdX * frontDist + rightX * lateralDist,
-            vPos.y + height,
-            vPos.z + fwdZ * frontDist + rightZ * lateralDist
-        );
-        // Look at slightly above centre of the car for heroic framing
-        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.7, vPos.z);
+        const camX = vPos.x + fwdX * frontDist + rightX * lateralDist;
+        const camY = vPos.y + height;
+        const camZ = vPos.z + fwdZ * frontDist + rightZ * lateralDist;
 
-        // High-speed smoothing on both position and lookAt to eliminate
-        // jitter from heading changes on curves while still tracking reliably.
-        const posLerp = 1 - Math.exp(-8.0 * dt);
-        const lookLerp = 1 - Math.exp(-10.0 * dt);
-        this._smoothPosition.lerp(camPos, posLerp);
-        this._smoothLookAt.lerp(lookAt, lookLerp);
-
-        this.camera.position.copy(this._smoothPosition);
-        this.camera.lookAt(this._smoothLookAt);
+        // Position and lookAt are set directly from the car's current position
+        // + smoothed heading. No additional lerp on position/lookAt so the car
+        // stays perfectly centred with zero oscillation.
+        this.camera.position.set(camX, camY, camZ);
+        this.camera.lookAt(vPos.x, vPos.y + 0.7, vPos.z);
 
         // Moderate telephoto FOV matching the pulled-back distance
         const targetFov = 45;
