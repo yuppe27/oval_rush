@@ -2672,14 +2672,17 @@ export class CourseBuilder {
     _buildMountainCastle() {
         const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8d8d88, roughness: 0.94 });
         const castleX = 30, castleZ = 360;
-        // Hill base for the castle so it doesn't float
+        const baseY = -26; // terrain base level
+
+        // Large hill so the castle sits on solid ground
         const hillMat = new THREE.MeshStandardMaterial({ color: 0x5a6b52, roughness: 0.95 });
-        const hill = new THREE.Mesh(new THREE.ConeGeometry(60, 50, 8), hillMat);
-        hill.position.set(castleX, -1, castleZ);
+        const hillH = 80;
+        const hill = new THREE.Mesh(new THREE.ConeGeometry(80, hillH, 8), hillMat);
+        hill.position.set(castleX, baseY + hillH / 2, castleZ);
         hill.receiveShadow = true;
         this.group.add(hill);
 
-        const groundY = 24; // top of the hill
+        const groundY = baseY + hillH; // hilltop = -26 + 80 = 54
         const keep = new THREE.Mesh(new THREE.BoxGeometry(28, 34, 24), stoneMat);
         keep.position.set(castleX, groundY + 17, castleZ);
         keep.castShadow = true;
