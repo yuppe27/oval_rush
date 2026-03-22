@@ -242,11 +242,11 @@ export class CameraController {
         const vPos = vehicle.position;
         const vRot = vehicle.rotation;
 
-        // Camera overtakes the car and films from the front
-        // Phase A (0..0.4): camera accelerates past the car (behind → ahead)
-        // Phase B (0.4..1): settled in front, slightly off-center, looking back
-        const a = THREE.MathUtils.smoothstep(p, 0, 0.4);
-        const b = THREE.MathUtils.clamp((p - 0.4) / 0.6, 0, 1);
+        // Front-zoom cinematic camera
+        // Phase A (0..0.3): transition from chase to front position
+        // Phase B (0.3..1): front tracking with slow orbit and zoom-in
+        const a = THREE.MathUtils.smoothstep(p, 0, 0.3);
+        const b = THREE.MathUtils.clamp((p - 0.3) / 0.7, 0, 1);
 
         // Forward direction of the car
         const fwdX = Math.sin(vRot);
@@ -255,30 +255,37 @@ export class CameraController {
         const rightX = Math.cos(vRot);
         const rightZ = -Math.sin(vRot);
 
-        // Longitudinal offset: start behind (-CHASE_DIST), overtake to ahead (+10)
-        const alongDist = THREE.MathUtils.lerp(-CAMERA_CHASE_DISTANCE, 10, a);
-        // Lateral offset: drift slightly to the right for a dynamic angle
-        const lateralDist = THREE.MathUtils.lerp(0, 3.0, a);
-        // Height: start at chase height, drop low for dramatic front shot
-        const height = THREE.MathUtils.lerp(CAMERA_CHASE_HEIGHT, 1.6, a);
+        // Phase A: move from behind to front
+        // Start: chase position (behind the car)
+        // End: front-right position (ahead of the car, slightly to the right, low angle)
+        const frontDist = THREE.MathUtils.lerp(-CAMERA_CHASE_DISTANCE, 8, a);
+        const lateralDist = THREE.MathUtils.lerp(0, 2.5, a);
+        const height = THREE.MathUtils.lerp(CAMERA_CHASE_HEIGHT, 1.8, a);
+
+        // Phase B: gentle orbit to add cinematic motion (subtle side-to-side)
+        const orbitAngle = b * Math.PI * 0.15;
+        const orbitLateral = lateralDist + Math.sin(orbitAngle) * 0.8;
+
+        // Zoom-in: gradually reduce distance to the car
+        const zoomFrontDist = THREE.MathUtils.lerp(frontDist, 5.0, b * 0.4);
 
         const camPos = new THREE.Vector3(
-            vPos.x + fwdX * alongDist + rightX * lateralDist,
+            vPos.x + fwdX * zoomFrontDist + rightX * orbitLateral,
             vPos.y + height,
-            vPos.z + fwdZ * alongDist + rightZ * lateralDist
+            vPos.z + fwdZ * zoomFrontDist + rightZ * orbitLateral
         );
-        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.7, vPos.z);
+        // Look at slightly above center of the car for a heroic framing
+        const lookAt = new THREE.Vector3(vPos.x, vPos.y + 0.6, vPos.z);
 
-        // Directly place camera based on p — no dt-dependent lerp
         this._smoothPosition.copy(camPos);
         this._smoothLookAt.copy(lookAt);
 
         this.camera.position.copy(camPos);
         this.camera.lookAt(lookAt);
 
-        // Narrow FOV once settled in front for telephoto close-up
-        const targetFov = THREE.MathUtils.lerp(CAMERA_BASE_FOV + 5, 36, b);
-        this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, targetFov < this.camera.fov ? 1 : p);
+        // FOV: start wide, then zoom in for telephoto close-up from front
+        const targetFov = THREE.MathUtils.lerp(CAMERA_BASE_FOV + 5, 32, b);
+        this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 3 + p * 0.5));
         this.camera.updateProjectionMatrix();
     }
 

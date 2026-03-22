@@ -681,6 +681,19 @@ export class AIController {
                 .slice(0, RIVAL_RB_COUNT)
         );
 
+        // プレイヤーより後方のAIのうち、追い上げ上位2台以外は速度を緩める
+        const CHASE_TOP_COUNT = 2;
+        const behindChasers = [...this.vehicles]
+            .filter(v => !v.completed && !v.isCrashed
+                && this._absProgress(v.lap, v.progressT) < playerAbs)
+            .sort((a, b) => {
+                // playerAbs に近い順（差が小さい＝上位チェイサー）
+                const distA = playerAbs - this._absProgress(a.lap, a.progressT);
+                const distB = playerAbs - this._absProgress(b.lap, b.progressT);
+                return distA - distB;
+            });
+        const _chaseThrottled = new Set(behindChasers.slice(CHASE_TOP_COUNT));
+
         for (const ai of this.vehicles) {
             if (ai.shiftCooldownTimer > 0) {
                 ai.shiftCooldownTimer = Math.max(0, ai.shiftCooldownTimer - dt);
@@ -779,7 +792,11 @@ export class AIController {
                 // Fast cars (pace ~1.16) get full rubber-band; slow cars (pace ~0.78) get ~40%.
                 const rbDampen = THREE.MathUtils.lerp(0.4, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1));
                 const rb = 1.0 + (rbRaw - 1.0) * rbDampen;
-                const desired = Math.min(effectiveMaxSpeed, wpSpeed * rb);
+                let desired = Math.min(effectiveMaxSpeed, wpSpeed * rb);
+                // 後方AIのうち上位2台以外は追い上げを抑制（0.92倍）
+                if (_chaseThrottled.has(ai)) {
+                    desired *= 0.92;
+                }
                 ai.targetSpeed = THREE.MathUtils.lerp(
                     ai.targetSpeed,
                     desired,
@@ -833,6 +850,7 @@ export class AIController {
         const isPostRace = raceState === 'finish_celebration' || raceState === 'finished';
         if (!isPostRace) {
             this._applyLaneAvoidance();
+            this._breakSideBySideFormations(dt, player);
             this._applyTrafficSpacing(dt);
             this._resolveAICollisions(player, dt);
         }
@@ -1295,6 +1313,79 @@ export class AIController {
             : -0.12;
         const preferredLaneBias = -Math.abs(candidateLane - (laneLimit * ai.preferredLaneBias * 0.45)) * 0.05;
         return -nearestPenalty - edgePenalty + currentBias + sideBias + preferredLaneBias;
+    }
+
+    /**
+     * 3台以上（自車含む）が横並び状態のとき、packAvoidance が最も高いAI 1台の
+     * 速度を落として横並びフォーメーションを自然に解消する。
+     */
+    _breakSideBySideFormations(dt, player) {
+        // 横並び判定: 車の全長(~3.5m) × 2 の範囲をコース進行率に変換
+        const carLength = 3.5;
+        const sideBySideT = (carLength * 2) / Math.max(1, this.courseBuilder.courseLength);
+        const sideBySideLane = this.tuning.collision.sideBySideLongitudinalDist ?? 2.0;
+        const active = this.vehicles.filter(v => !v.completed && !v.isCrashed);
+        if (active.length < 2) return;
+
+        // プレイヤーを横並び判定の候補に含める（統一フォーマット）
+        const candidates = active.map(v => ({
+            progressT: v.progressT,
+            laneOffset: v.laneOffset,
+            ai: v,
+            isPlayer: false,
+        }));
+        if (player && player.position) {
+            // プレイヤーの横位置をトラックフレームから算出
+            const playerT = wrap01(player.trackT ?? 0);
+            const frame = this._sampleTrackFrame(playerT);
+            const toPlayer = new THREE.Vector3().subVectors(player.position, frame.position);
+            const playerLaneOffset = toPlayer.dot(frame.right);
+            candidates.push({
+                progressT: playerT,
+                laneOffset: playerLaneOffset,
+                ai: null,
+                isPlayer: true,
+            });
+        }
+        if (candidates.length < 3) return;
+
+        // progressT が近い車をグループ化
+        const sorted = [...candidates].sort((a, b) => a.progressT - b.progressT);
+        const visited = new Set();
+
+        for (let i = 0; i < sorted.length; i++) {
+            if (visited.has(i)) continue;
+            const group = [sorted[i]];
+            visited.add(i);
+
+            for (let j = i + 1; j < sorted.length; j++) {
+                if (visited.has(j)) continue;
+                // グループ内の全メンバーと横並び判定
+                const isAligned = group.some(member => {
+                    const dProg = Math.abs(member.progressT - sorted[j].progressT);
+                    const closeT = Math.min(dProg, 1 - dProg);
+                    const closeLane = Math.abs(member.laneOffset - sorted[j].laneOffset);
+                    return closeT < sideBySideT && closeLane > sideBySideLane * 0.3;
+                });
+                if (isAligned) {
+                    group.push(sorted[j]);
+                    visited.add(j);
+                }
+            }
+
+            // 3台以上横並び（自車含む）なら AI の中で packAvoidance が最も高い1台を減速
+            if (group.length >= 3) {
+                const aiInGroup = group.filter(c => !c.isPlayer);
+                if (aiInGroup.length === 0) continue;
+                const retreater = aiInGroup.reduce((best, cur) =>
+                    (cur.ai.packAvoidance ?? 0.5) > (best.ai.packAvoidance ?? 0.5) ? cur : best
+                );
+                // 速度を徐々に落として後退させる（0.92倍に収束）
+                const brakeFactor = 1 - 0.08 * THREE.MathUtils.clamp(dt * 4, 0, 1);
+                retreater.ai.targetSpeed *= brakeFactor;
+                retreater.ai.speed = Math.min(retreater.ai.speed, retreater.ai.targetSpeed);
+            }
+        }
     }
 
     _applyTrafficSpacing(dt) {
