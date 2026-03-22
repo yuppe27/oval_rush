@@ -1424,14 +1424,12 @@ export class PlayerVehicle {
 
         const N = this.courseBuilder.sampledPoints.length;
 
-        // Accelerate/decelerate toward target speed
+        // Smoothly converge toward target speed without oscillation.
+        // Using exponential lerp avoids the overshoot/undershoot cycle
+        // that occurs with separate accel/decel branches.
         const targetSpeed = this.autoDriveSpeed;
-        if (this.speed < targetSpeed) {
-            this.speed += this.acceleration * 0.5 * dt;
-            if (this.speed > targetSpeed) this.speed = targetSpeed;
-        } else {
-            this.speed *= Math.pow(0.97, dt * 60);
-        }
+        const speedLerp = 1 - Math.exp(-3.0 * dt);
+        this.speed = this.speed + (targetSpeed - this.speed) * speedLerp;
         this._updateAutoGear();
 
         // Advance fractional spline index by distance travelled
