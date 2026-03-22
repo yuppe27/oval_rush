@@ -630,6 +630,7 @@ export class AIController {
         }
         this._nextFinishPos = 1;
         this._raceElapsed = 0;
+        this._formationSpeed = null;
     }
 
     setDifficulty(level = 'NORMAL') {
@@ -747,6 +748,9 @@ export class AIController {
                     ai.driftHoldTimer = 0;
                 }
             }
+            // Formation mode: racing but haven't crossed start line yet
+            const inFormation = raceState === 'racing' && !ai.startLinePassed;
+
             if (introCruiseSpeed !== null) {
                 ai.isDrifting = false;
                 ai.driftStrength = 0;
@@ -777,6 +781,27 @@ export class AIController {
                 const laneLerp = 1 - Math.exp(-1.5 * dt);
                 ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai._cruiseNeutralLane, laneLerp);
                 ai.laneTarget = ai.laneOffset;
+            } else if (inFormation) {
+                // Formation: all cars use the same uniform speed so grid order is preserved.
+                // Base on the slowest AI's max speed to prevent faster cars from overtaking.
+                const formationSpeed = this._formationSpeed
+                    ?? (this._formationSpeed = Math.min(...this.vehicles.map(v => v.maxSpeed)) * 0.90);
+                const wpSpeed = wp ? Math.min(wp.suggestedSpeed, formationSpeed) : formationSpeed;
+                ai.targetSpeed = THREE.MathUtils.lerp(
+                    ai.targetSpeed,
+                    wpSpeed,
+                    this.tuning.speed.targetSmoothing
+                );
+                ai.lastWaypointSpeed = wpSpeed;
+                ai.lastRubberBand = 1.0;
+                ai.lastDesiredSpeed = ai.targetSpeed;
+                // Suppress launch boost during formation
+                ai.launchTimer = 0;
+                // Lock lane to grid position — don't drift or change lanes
+                ai.isDrifting = false;
+                ai.driftStrength = 0;
+                ai.driftAngle = 0;
+                ai.driftHoldTimer = 0;
             } else {
                 const driftPenalty = ai.isDrifting
                     ? THREE.MathUtils.lerp(1.0, this.tuning.drift.cornerSpeedPenalty, ai.driftStrength)
@@ -849,12 +874,20 @@ export class AIController {
             }
         }
 
+        // Check if any AI is still in formation (before start line)
+        const anyInFormation = raceState === 'racing'
+            && this.vehicles.some(v => !v.startLinePassed);
         const isPostRace = raceState === 'finish_celebration' || raceState === 'finished';
         if (!isPostRace) {
-            this._applyLaneAvoidance();
-            this._breakSideBySideFormations(dt, player);
-            this._applyTrafficSpacing(dt);
-            this._resolveAICollisions(player, dt);
+            if (anyInFormation) {
+                // Only resolve collisions during formation, skip lane changes/overtakes
+                this._resolveAICollisions(player, dt);
+            } else {
+                this._applyLaneAvoidance();
+                this._breakSideBySideFormations(dt, player);
+                this._applyTrafficSpacing(dt);
+                this._resolveAICollisions(player, dt);
+            }
         } else {
             this._applyCruiseAvoidance(dt, player);
         }
