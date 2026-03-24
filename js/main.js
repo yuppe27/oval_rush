@@ -188,6 +188,7 @@ class Game {
 
             this.cameraController.update(rawDt, this.player, this.raceManager);
             this._updateCourseEnvironment(rawDt);
+            this.courseBuilder.updateAirship(rawDt);
             this._updateJumbotron();
             this.hud.update(this.player, this.raceManager, rawDt);
             this.minimap.update(this.player, this.aiController, this.raceManager.state);
@@ -216,14 +217,28 @@ class Game {
     }
 
     _bindResultButtons() {
-        document.getElementById('btn-retry')?.addEventListener('click', () => this.retry());
-        document.getElementById('btn-course-select')?.addEventListener('click', () => {
-            if (this._onCourseSelect) this._onCourseSelect();
-        });
-        document.getElementById('btn-title')?.addEventListener('click', () => {
-            if (this._onQuitToTitle) this._onQuitToTitle();
-        });
+        this._resultBtnHandlers = {
+            retry: () => this.retry(),
+            courseSelect: () => { if (this._onCourseSelect) this._onCourseSelect(); },
+            title: () => { if (this._onQuitToTitle) this._onQuitToTitle(); },
+        };
+        document.getElementById('btn-retry')?.addEventListener('click', this._resultBtnHandlers.retry);
+        document.getElementById('btn-course-select')?.addEventListener('click', this._resultBtnHandlers.courseSelect);
+        document.getElementById('btn-title')?.addEventListener('click', this._resultBtnHandlers.title);
         this._bindInitialsInput();
+    }
+
+    _removeResultButtonListeners() {
+        if (this._resultBtnHandlers) {
+            document.getElementById('btn-retry')?.removeEventListener('click', this._resultBtnHandlers.retry);
+            document.getElementById('btn-course-select')?.removeEventListener('click', this._resultBtnHandlers.courseSelect);
+            document.getElementById('btn-title')?.removeEventListener('click', this._resultBtnHandlers.title);
+            this._resultBtnHandlers = null;
+        }
+        if (this._saveBtnHandler) {
+            document.getElementById('btn-save-ranking')?.removeEventListener('click', this._saveBtnHandler);
+            this._saveBtnHandler = null;
+        }
     }
 
     _bindInitialsInput() {
@@ -274,7 +289,7 @@ class Game {
         };
         window.addEventListener('keydown', this._resultKeyHandler);
 
-        saveBtn?.addEventListener('click', () => {
+        this._saveBtnHandler = () => {
             const name = Array.from(chars).map((c) => c.textContent).join('');
             const totalTimeMs = Math.round((this.raceManager.timer?.totalElapsed || 0) * 1000);
             const rank = insertRanking(this._courseId, this._difficulty, {
@@ -286,7 +301,8 @@ class Game {
             saveBtn.textContent = 'SAVED!';
             // rank is 1-based; pass 0-based index (-1 if not on the list)
             this.hud.refreshRankingDisplay(this._courseId, this._difficulty, rank - 1);
-        });
+        };
+        saveBtn?.addEventListener('click', this._saveBtnHandler);
     }
 
     setPaused(paused) {
@@ -334,8 +350,11 @@ class Game {
             window.removeEventListener('keydown', this._resultKeyHandler);
             this._resultKeyHandler = null;
         }
+        this._removeResultButtonListeners();
         const resultEl = document.getElementById('hud-result');
         if (resultEl) resultEl.style.display = 'none';
+        this.trackEffects.dispose();
+        this.slipstreamSystem.dispose();
         this.minimap.dispose();
         this.input.destroy();
         this.cameraController.dispose();
@@ -863,6 +882,7 @@ class TitleDemo {
             this.renderer.dirLight.position.set(pPos.x + 50, 80, pPos.z + 30);
             this.renderer.dirLight.target.position.copy(pPos);
             this.renderer.dirLight.target.updateMatrixWorld();
+            this.courseBuilder.updateAirship(rawDt);
             this.cameraController.update(rawDt, this.player, null);
             this.renderer.updateSky(this.cameraController.camera);
             this.renderer.render(this.cameraController.camera);
@@ -888,6 +908,9 @@ class TitleDemo {
         this.gameLoop.stop();
         this.cameraController.dispose();
         this.renderer.dispose();
+        this.courseBuilder = null;
+        this.player = null;
+        this.aiController = null;
     }
 }
 

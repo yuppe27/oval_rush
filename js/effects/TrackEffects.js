@@ -97,6 +97,12 @@ class TireSmokeSystem {
         }
         this.geometry.attributes.position.needsUpdate = true;
     }
+
+    dispose() {
+        this.points.geometry.dispose();
+        this.points.material.dispose();
+        this.points.parent?.remove(this.points);
+    }
 }
 
 class SkidMarkSystem {
@@ -176,6 +182,12 @@ class SkidMarkSystem {
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.attributes.color.needsUpdate = true;
     }
+
+    dispose() {
+        this.lines.geometry.dispose();
+        this.lines.material.dispose();
+        this.lines.parent?.remove(this.lines);
+    }
 }
 
 export class TrackEffects {
@@ -197,5 +209,10 @@ export class TrackEffects {
     reset() {
         this.smoke.reset();
         this.skid.reset();
+    }
+
+    dispose() {
+        this.smoke.dispose();
+        this.skid.dispose();
     }
 }

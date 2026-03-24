@@ -10,6 +10,7 @@ export class GameLoop {
         this.fixedUpdateCallbacks = [];
         this.renderCallbacks = [];
         this._boundLoop = this._loop.bind(this);
+        this._rafId = 0;
     }
 
     onFixedUpdate(callback) {
@@ -23,11 +24,15 @@ export class GameLoop {
     start() {
         this.running = true;
         this.lastTime = performance.now();
-        requestAnimationFrame(this._boundLoop);
+        this._rafId = requestAnimationFrame(this._boundLoop);
     }
 
     stop() {
         this.running = false;
+        if (this._rafId) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = 0;
+        }
     }
 
     setTimeScale(scale, duration = 0) {
@@ -38,7 +43,7 @@ export class GameLoop {
     _loop(timestamp) {
         if (!this.running) return;
 
-        const rawDeltaTime = Math.min((timestamp - this.lastTime) / 1000, 0.1);
+        const rawDeltaTime = Math.max(0, Math.min((timestamp - this.lastTime) / 1000, 0.1));
         this.lastTime = timestamp;
         if (this._timeScaleTimer > 0) {
             this._timeScaleTimer -= rawDeltaTime;
@@ -65,6 +70,6 @@ export class GameLoop {
             cb(scaledDeltaTime, alpha, rawDeltaTime);
         }
 
-        requestAnimationFrame(this._boundLoop);
+        this._rafId = requestAnimationFrame(this._boundLoop);
     }
 }

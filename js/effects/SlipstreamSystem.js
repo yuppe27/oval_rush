@@ -131,4 +131,13 @@ export class SlipstreamSystem {
             this.airLine.material.opacity = 0;
         }
     }
+
+    dispose() {
+        if (this.airLine) {
+            this.airLine.geometry.dispose();
+            this.airLine.material.dispose();
+            this.airLine.parent?.remove(this.airLine);
+            this.airLine = null;
+        }
+    }
 }

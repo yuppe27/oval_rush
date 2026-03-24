@@ -676,6 +676,95 @@ export class CourseBuilder {
 
         this._buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight);
         this._buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight);
+        this._buildAirship(cx, cz, maxR);
+    }
+
+    _buildAirship(cx, cz, trackRadius) {
+        const orbitR = trackRadius * 0.6;
+        const altitude = 90;
+        const bodyLength = 28;
+        const bodyRadius = 5.5;
+
+        const airshipGroup = new THREE.Group();
+
+        // Envelope (main body) - elongated ellipsoid using a stretched sphere
+        const envelopeMat = new THREE.MeshStandardMaterial({
+            color: 0xd8d8e0, roughness: 0.35, metalness: 0.1,
+        });
+        const envelopeGeo = new THREE.SphereGeometry(bodyRadius, 24, 16);
+        const envelope = new THREE.Mesh(envelopeGeo, envelopeMat);
+        envelope.scale.set(bodyLength / (bodyRadius * 2), 1, 1);
+        envelope.castShadow = true;
+        airshipGroup.add(envelope);
+
+        // Stripe decoration along the body
+        const stripeMat = new THREE.MeshStandardMaterial({
+            color: 0x2255aa, roughness: 0.4, metalness: 0.15,
+        });
+        const stripeGeo = new THREE.CylinderGeometry(bodyRadius * 1.005, bodyRadius * 1.005, bodyLength * 0.88, 24, 1, true,
+            Math.PI * 0.42, Math.PI * 0.16);
+        const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+        stripe.rotation.z = Math.PI / 2;
+        airshipGroup.add(stripe);
+
+        // Gondola (cabin underneath)
+        const gondolaMat = new THREE.MeshStandardMaterial({
+            color: 0x334455, roughness: 0.5, metalness: 0.6,
+        });
+        const gondolaGeo = new THREE.BoxGeometry(8, 1.8, 2.8);
+        const gondola = new THREE.Mesh(gondolaGeo, gondolaMat);
+        gondola.position.set(0, -bodyRadius - 1.5, 0);
+        gondola.castShadow = true;
+        airshipGroup.add(gondola);
+
+        // Tail fins (4 fins in cross pattern)
+        const finMat = new THREE.MeshStandardMaterial({
+            color: 0x2255aa, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide,
+        });
+        const finShape = new THREE.Shape();
+        finShape.moveTo(0, 0);
+        finShape.lineTo(-5, 3.5);
+        finShape.lineTo(-6, 3.5);
+        finShape.lineTo(-6, 0.5);
+        finShape.lineTo(-2, 0);
+        finShape.closePath();
+        const finGeo = new THREE.ShapeGeometry(finShape);
+        const finOffsetX = -bodyLength / 2 + 1;
+        for (const rot of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+            const fin = new THREE.Mesh(finGeo, finMat);
+            fin.position.set(finOffsetX, 0, 0);
+            fin.rotation.set(rot, Math.PI / 2, 0);
+            airshipGroup.add(fin);
+        }
+
+        airshipGroup.position.set(cx + orbitR, altitude, cz);
+        this.group.add(airshipGroup);
+
+        // Store state for animation
+        this._airship = {
+            group: airshipGroup,
+            cx,
+            cz,
+            orbitR,
+            altitude,
+            angle: 0,
+        };
+    }
+
+    updateAirship(dt) {
+        if (!this._airship) return;
+        const a = this._airship;
+        // Slow orbit: one full revolution in ~120 seconds
+        a.angle += dt * (Math.PI * 2) / 120;
+        // Gentle bobbing
+        const bob = Math.sin(a.angle * 3) * 1.5;
+        a.group.position.set(
+            a.cx + Math.cos(a.angle) * a.orbitR,
+            a.altitude + bob,
+            a.cz + Math.sin(a.angle) * a.orbitR,
+        );
+        // Face direction of travel (tangent to orbit)
+        a.group.rotation.y = -a.angle + Math.PI / 2;
     }
 
     _buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight) {
