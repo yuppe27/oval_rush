@@ -132,6 +132,12 @@ class Game {
             this.slipstreamSystem.update(dt, this.player, this.aiController, this.raceManager.state);
             this.player.fixedUpdate(dt, this.input);
             this.raceManager.update(dt, this.player);
+            // Reserve the player's finish position before AI can complete in the same tick.
+            if (this.raceManager.finalizeFinishOrder(this.player) && this.mode === 'arcade') {
+                const pos = this.raceManager.playerPosition;
+                this.audio.setFinishPosition(pos);
+                this.podiumFX.show(pos);
+            }
             const aiRaceState = this.raceManager.isRollingStartCountdown ? 'racing' : this.raceManager.state;
             this.aiController.update(
                 dt,
@@ -141,11 +147,6 @@ class Game {
                 this.raceManager.justEnteredRacing
             );
             this._syncRollingStartAutoDrive();
-            if (this.raceManager.finalizeFinishOrder(this.player) && this.mode === 'arcade') {
-                const pos = this.raceManager.playerPosition;
-                this.audio.setFinishPosition(pos);
-                this.podiumFX.show(pos);
-            }
             this._syncPauseAvailability();
             this.trackEffects.update(dt, this.player, this.raceManager.state);
         });
