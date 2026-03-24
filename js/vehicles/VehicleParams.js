@@ -54,7 +54,7 @@ export const VEHICLE_PRESETS = {
     ironclad: {
         id: 'ironclad',
         name: 'Ironclad GT',
-        color: 0xff6600,
+        color: 0xff8c00,
         accent1: 0xffffff,
         accent2: 0x333333,
         maxSpeedKmh: 270,

@@ -91,36 +91,36 @@ const DEFAULT_TUNING = {
     difficulty: {
         EASY: {
             speedScale: 1.00,
-            rbBehindFar: 1.16,
-            rbBehindNear: 1.08,
+            rbBehindFar: 1.20,
+            rbBehindNear: 1.10,
             rbAheadFar: 0.985,
             rbAheadNear: 0.995,
-            rbBehindStart: 0.05,
-            rbBehindRange: 0.20,
+            rbBehindStart: 0.04,
+            rbBehindRange: 0.18,
             rbAheadStart: 0.12,
             rbAheadRange: 0.30,
             rbAheadGraceSec: 8.0,
         },
         NORMAL: {
             speedScale: 1.09,
-            rbBehindFar: 1.2,
-            rbBehindNear: 1.1,
+            rbBehindFar: 1.24,
+            rbBehindNear: 1.12,
             rbAheadFar: 0.993,
             rbAheadNear: 0.999,
-            rbBehindStart: 0.05,
-            rbBehindRange: 0.20,
+            rbBehindStart: 0.04,
+            rbBehindRange: 0.18,
             rbAheadStart: 0.12,
             rbAheadRange: 0.30,
             rbAheadGraceSec: 10.0,
         },
         HARD: {
             speedScale: 1.13,
-            rbBehindFar: 1.16,
-            rbBehindNear: 1.08,
+            rbBehindFar: 1.20,
+            rbBehindNear: 1.10,
             rbAheadFar: 0.998,
             rbAheadNear: 1.0,
-            rbBehindStart: 0.05,
-            rbBehindRange: 0.20,
+            rbBehindStart: 0.04,
+            rbBehindRange: 0.18,
             rbAheadStart: 0.12,
             rbAheadRange: 0.30,
             rbAheadGraceSec: 12.0,
@@ -632,19 +632,19 @@ export class AIController {
                 const behindPlayer = aiAbs < playerAbs;
                 const aheadPlayerMaxSpeedCap = this.playerReferenceMaxSpeed * AI_AHEAD_PLAYER_SPEED_CAP_RATIO;
                 const effectiveMaxSpeed = behindPlayer
-                    ? Math.min(ai.maxSpeed * 1.02, this.aiSpeedCap)
+                    ? Math.min(ai.maxSpeed * 1.05, this.aiSpeedCap)
                     : Math.min(ai.maxSpeed, aheadPlayerMaxSpeedCap);
                 const wpSpeed = wp ? wp.suggestedSpeed * ai.paceFactor * driftPenalty : effectiveMaxSpeed;
                 // ラバーバンドはプレイヤーに近い2台のみ適用。他の車は自然なペースを維持
                 const rbRaw = _rbEligible.has(ai) ? this._getRubberBandFactor(aiAbs, playerAbs) : 1.0;
                 // Dampen rubber-band for slower cars so pace differences survive.
                 // Fast cars (pace ~1.16) get full rubber-band; slow cars (pace ~0.78) get ~40%.
-                const rbDampen = THREE.MathUtils.lerp(0.4, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1));
+                const rbDampen = THREE.MathUtils.lerp(0.5, 1.0, THREE.MathUtils.clamp((ai.paceFactor - 0.76) / 0.42, 0, 1));
                 const rb = 1.0 + (rbRaw - 1.0) * rbDampen;
                 let desired = Math.min(effectiveMaxSpeed, wpSpeed * rb);
                 // 後方AIのうち上位2台以外は追い上げを抑制（0.92倍）
                 if (_chaseThrottled.has(ai)) {
-                    desired *= 0.92;
+                    desired *= 0.94;
                 }
                 ai.targetSpeed = THREE.MathUtils.lerp(
                     ai.targetSpeed,
