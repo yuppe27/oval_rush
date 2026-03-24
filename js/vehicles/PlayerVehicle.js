@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VehicleModel } from './VehicleModel.js?v=2';
+import { VehicleModel } from './VehicleModel.js?v=6';
 import {
     DEFAULT_MAX_SPEED,
     DEFAULT_ACCELERATION,
@@ -96,6 +96,14 @@ export class PlayerVehicle {
             color: config.color,
             modelScale: config.modelScale,
         });
+        // Apply car-specific livery (body + accent colors) to GLB model
+        if (config.color != null) {
+            this.model.applyLivery({
+                body: config.color,
+                accent1: config.accent1,
+                accent2: config.accent2,
+            });
+        }
 
         // Position & orientation
         this.position = new THREE.Vector3(0, 0, 0);

@@ -4,11 +4,11 @@ import { Renderer } from './graphics/Renderer.js';
 import { CameraController } from './graphics/CameraController.js?v=2';
 import { HUD } from './graphics/HUD.js?v=2';
 import { InputManager } from './input/InputManager.js?v=2';
-import { PlayerVehicle } from './vehicles/PlayerVehicle.js?v=2';
+import { PlayerVehicle } from './vehicles/PlayerVehicle.js?v=5';
 import { CourseBuilder } from './courses/CourseBuilder.js?v=2';
 import { resolveCourse } from './courses/CourseData.js';
 import { RaceManager } from './race/RaceManager.js';
-import { AIController } from './ai/AIController.js';
+import { AIController } from './ai/AIController.js?v=4';
 import { SlipstreamSystem } from './effects/SlipstreamSystem.js';
 import { TrackEffects } from './effects/TrackEffects.js';
 import { BoostFX } from './effects/BoostFX.js';
@@ -16,6 +16,7 @@ import { PodiumFX } from './effects/PodiumFX.js';
 import { Minimap } from './graphics/Minimap.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { resolveVehiclePreset, toVehiclePhysics } from './vehicles/VehicleParams.js';
+import { VehicleModel } from './vehicles/VehicleModel.js?v=6';
 import { UIManager } from './ui/UIManager.js?v=2';
 import { insertRanking } from './race/Ranking.js';
 import {
@@ -890,7 +891,14 @@ class TitleDemo {
     }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+    // Preload car GLB model before anything else
+    try {
+        await VehicleModel.preload();
+    } catch (e) {
+        console.warn('Car GLB preload failed, will use fallback:', e);
+    }
+
     const audio = new AudioManager();
     const ui = new UIManager(audio);
     let currentGame = null;

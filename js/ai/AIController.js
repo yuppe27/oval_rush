@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AIVehicle } from '../vehicles/AIVehicle.js';
 import { VEHICLE_PRESET_IDS, resolveVehiclePreset } from '../vehicles/VehicleParams.js';
+import { VehicleModel } from '../vehicles/VehicleModel.js?v=6';
 import { WaypointSystem } from './Waypoint.js';
 import { DEFAULT_MAX_SPEED, KMH_TO_MS } from '../core/Constants.js';
 
@@ -307,277 +308,98 @@ export class AIController {
 
     _buildInstancedMesh() {
         const n = this.aiCount;
+        const cachedScene = VehicleModel.getCachedScene();
 
-        // Helper: prep geometry for merge (strip UV, convert to non-indexed)
-        const prep = (g) => {
-            g.deleteAttribute('uv');
-            return g.index ? g.toNonIndexed() : g;
-        };
+        this._aiGroups = [];
+        this._aiTaillightMats = [];
 
-        // --- Helper: create box geometry pre-offset to world-local position ---
-        const offBox = (w, h, l, x, y, z, rx = 0, ry = 0, rz = 0) => {
-            const g = new THREE.BoxGeometry(w, h, l);
-            if (rx) g.rotateX(rx);
-            if (ry) g.rotateY(ry);
-            if (rz) g.rotateZ(rz);
-            g.translate(x, y, z);
-            return prep(g);
-        };
-        // Cylinder (for wheels/exhausts) rotated on Z axis
-        const offCylZ = (r, t, x, y, z, segs = 10) => {
-            const g = new THREE.CylinderGeometry(r, r, t, segs);
-            g.rotateZ(Math.PI / 2);
-            g.translate(x, y, z);
-            return prep(g);
-        };
-
-        // ============================================================
-        // LAYER 1: Body paint (uses instance colors for per-car color)
-        // ============================================================
-        const bodyParts = [
-            // Main body
-            offBox(1.98, 0.50, 3.50, 0, 0.52, -0.04),
-            // Belt line (narrower upper body)
-            offBox(1.78, 0.16, 2.70, 0, 0.80, -0.12),
-            // Rear deck
-            offBox(1.86, 0.22, 0.90, 0, 0.90, -1.55),
-            // Nose (tilted box to approximate wedge)
-            offBox(1.88, 0.40, 1.10, 0, 0.48, 1.96, -0.15),
-            // Nose lower (fills gap under tilted nose)
-            offBox(1.84, 0.18, 0.70, 0, 0.30, 2.20),
-            // Tail (tilted box)
-            offBox(1.88, 0.32, 0.86, 0, 0.78, -2.0, 0.12),
-            // Front fenders
-            offBox(0.42, 0.30, 0.80, 1.02, 0.56, 1.20),
-            offBox(0.42, 0.30, 0.80, -1.02, 0.56, 1.20),
-            // Rear fenders
-            offBox(0.46, 0.34, 0.90, 1.04, 0.60, -1.24),
-            offBox(0.46, 0.34, 0.90, -1.04, 0.60, -1.24),
+        // Per-car racing liveries: { body, accent1 (stripe/accent), accent2 (trim/detail) }
+        const racingLiveries = [
+            { body: 0x1144cc, accent1: 0xffffff, accent2: 0xd4af37 }, // Royal blue + white + gold
+            { body: 0x228833, accent1: 0xffdd00, accent2: 0xffffff }, // Racing green + yellow + white
+            { body: 0x7722bb, accent1: 0xc0c0c0, accent2: 0xe040e0 }, // Purple + silver + magenta
+            { body: 0x00a5b8, accent1: 0xff6600, accent2: 0xffffff }, // Teal + orange + white
+            { body: 0xdd2255, accent1: 0xffffff, accent2: 0x222222 }, // Hot pink + white + black
+            { body: 0x115533, accent1: 0xd4af37, accent2: 0xccddbb }, // British green + gold + ivory
+            { body: 0x1a2266, accent1: 0xcc0000, accent2: 0xffffff }, // Navy + red + white
+            { body: 0x882222, accent1: 0xc0c0c0, accent2: 0xddaa44 }, // Maroon + silver + gold
+            { body: 0x44bbcc, accent1: 0x222222, accent2: 0xff4400 }, // Sky blue + black + orange
+            { body: 0x885511, accent1: 0xffcc00, accent2: 0xffffff }, // Bronze + yellow + white
+            { body: 0x88bb22, accent1: 0x222222, accent2: 0xff2200 }, // Lime + black + red
+            { body: 0x555555, accent1: 0x00ccff, accent2: 0xff4400 }, // Gunmetal + cyan + orange
         ];
-        const bodyGeo = mergeGeometries(bodyParts);
-        const bodyMat = new THREE.MeshStandardMaterial({
-            roughness: 0.25,
-            metalness: 0.7,
-        });
-        this.instanceMeshBody = new THREE.InstancedMesh(bodyGeo, bodyMat, n);
-        this.instanceMeshBody.castShadow = true;
-        this.instanceMeshBody.receiveShadow = true;
-        this.instanceMeshBody.frustumCulled = false;
 
-        // Assign per-car racing colors
-        const racingColors = [
-            0x2255dd, 0xdd2222, 0x22aa44, 0xee8800,
-            0x9933cc, 0x00bbcc, 0xcccc00, 0xff4488,
-            0x4466ff, 0xaa5500, 0x228866, 0xcc3366,
-        ];
-        for (let i = 0; i < n; i++) {
-            const c = new THREE.Color(racingColors[i % racingColors.length]);
-            this.instanceMeshBody.setColorAt(i, c);
-        }
-        if (this.instanceMeshBody.instanceColor) {
-            this.instanceMeshBody.instanceColor.needsUpdate = true;
-        }
+        if (cachedScene) {
+            // Use GLB clones for each AI car
+            const box = new THREE.Box3().setFromObject(cachedScene);
+            const size = box.getSize(new THREE.Vector3());
+            const targetLength = 4.8;
+            const scaleFactor = targetLength / Math.max(size.x, size.y, size.z);
 
-        // ============================================================
-        // LAYER 2: Cabin / roof
-        // ============================================================
-        const roofParts = [
-            offBox(1.58, 0.42, 2.00, 0, 1.02, -0.20),
-        ];
-        const roofGeo = mergeGeometries(roofParts);
-        const roofMat = new THREE.MeshStandardMaterial({
-            roughness: 0.25,
-            metalness: 0.7,
-        });
-        this.instanceMeshRoof = new THREE.InstancedMesh(roofGeo, roofMat, n);
-        this.instanceMeshRoof.castShadow = true;
-        this.instanceMeshRoof.frustumCulled = false;
-        // Roof inherits body color
-        for (let i = 0; i < n; i++) {
-            const c = new THREE.Color(racingColors[i % racingColors.length]);
-            this.instanceMeshRoof.setColorAt(i, c);
-        }
-        if (this.instanceMeshRoof.instanceColor) {
-            this.instanceMeshRoof.instanceColor.needsUpdate = true;
+            for (let i = 0; i < n; i++) {
+                const clone = cachedScene.clone(true);
+                clone.scale.setScalar(scaleFactor);
+                clone.rotation.y = -Math.PI / 2;
+
+                const scaledBox = new THREE.Box3().setFromObject(clone);
+                const scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+
+                clone.position.set(
+                    clone.position.x - scaledCenter.x,
+                    clone.position.y - scaledBox.min.y,
+                    clone.position.z - scaledCenter.z
+                );
+
+                clone.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                const wrapper = new THREE.Group();
+                wrapper.add(clone);
+
+                const livery = racingLiveries[i % racingLiveries.length];
+                VehicleModel.applyLiveryToGroup(wrapper, livery);
+
+                // Grab shared taillight material for brake effect
+                let tlMat = null;
+                wrapper.traverse((child) => {
+                    if (child.isMesh && child.material.name === 'Taillight' && !tlMat) {
+                        tlMat = child.material;
+                    }
+                });
+                this._aiTaillightMats.push(tlMat);
+                this._aiGroups.push(wrapper);
+            }
+        } else {
+            // Fallback: simple colored boxes if GLB not available
+            for (let i = 0; i < n; i++) {
+                const geo = new THREE.BoxGeometry(2, 1, 4.5);
+                const mat = new THREE.MeshStandardMaterial({
+                    color: racingLiveries[i % racingLiveries.length].body,
+                    roughness: 0.25,
+                    metalness: 0.7,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.y = 0.5;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                const wrapper = new THREE.Group();
+                wrapper.add(mesh);
+                this._aiTaillightMats.push(null);
+                this._aiGroups.push(wrapper);
+            }
         }
 
-        // ============================================================
-        // LAYER 3: Dark trim (underbody, splitter, diffuser, spoiler, side skirts)
-        // ============================================================
-        const trimParts = [
-            // Underbody / chassis
-            offBox(2.06, 0.22, 4.50, 0, 0.25, 0),
-            // Side pods
-            offBox(0.30, 0.22, 2.00, 1.0, 0.37, 0.04),
-            offBox(0.30, 0.22, 2.00, -1.0, 0.37, 0.04),
-            // Front splitter
-            offBox(1.96, 0.06, 0.44, 0, 0.12, 2.22),
-            // Rear diffuser
-            offBox(1.82, 0.08, 0.36, 0, 0.14, -2.20),
-            // Side skirts
-            offBox(0.07, 0.10, 2.90, 1.05, 0.28, 0),
-            offBox(0.07, 0.10, 2.90, -1.05, 0.28, 0),
-            // Spoiler blade
-            offBox(1.82, 0.055, 0.30, 0, 1.16, -2.04),
-            // Spoiler supports
-            offBox(0.07, 0.30, 0.07, 0.70, 1.00, -2.04),
-            offBox(0.07, 0.30, 0.07, -0.70, 1.00, -2.04),
-            // Spoiler endplates
-            offBox(0.03, 0.12, 0.34, 0.91, 1.16, -2.04),
-            offBox(0.03, 0.12, 0.34, -0.91, 1.16, -2.04),
-            // Door seam lines
-            offBox(0.015, 0.50, 0.015, 1.0, 0.56, -0.0),
-            offBox(0.015, 0.50, 0.015, -1.0, 0.56, -0.0),
-            // Grille opening
-            offBox(1.14, 0.18, 0.05, 0, 0.42, 2.36),
-        ];
-        const trimGeo = mergeGeometries(trimParts);
-        const trimMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1a1a,
-            roughness: 0.65,
-            metalness: 0.2,
-        });
-        this.instanceMeshTrim = new THREE.InstancedMesh(trimGeo, trimMat, n);
-        this.instanceMeshTrim.castShadow = true;
-        this.instanceMeshTrim.frustumCulled = false;
-
-        // ============================================================
-        // LAYER 4: Glass (windshields + side windows)
-        // ============================================================
-        const glassParts = [
-            // Front windshield (tilted)
-            (() => {
-                const g = offBox(1.40, 0.26, 0.04, 0, 1.04, 0.68);
-                g.rotateX(-0.28);
-                return g;
-            })(),
-            // Rear glass (tilted)
-            (() => {
-                const g = offBox(1.34, 0.22, 0.04, 0, 0.98, -0.76);
-                g.rotateX(0.22);
-                return g;
-            })(),
-            // Side windows
-            offBox(0.03, 0.28, 1.76, 0.80, 1.00, -0.20),
-            offBox(0.03, 0.28, 1.76, -0.80, 1.00, -0.20),
-        ];
-        const glassGeo = mergeGeometries(glassParts);
-        const glassMat = new THREE.MeshStandardMaterial({
-            color: 0x8ab8d8,
-            roughness: 0.08,
-            metalness: 0.25,
-            transparent: true,
-            opacity: 0.55,
-        });
-        this.instanceMeshGlass = new THREE.InstancedMesh(glassGeo, glassMat, n);
-        this.instanceMeshGlass.frustumCulled = false;
-
-        // ============================================================
-        // LAYER 5: Headlights (emissive)
-        // ============================================================
-        const headParts = [
-            offBox(0.26, 0.14, 0.06, 0.72, 0.52, 2.18),
-            offBox(0.26, 0.14, 0.06, -0.72, 0.52, 2.18),
-            // Chrome grille bar
-            offBox(1.20, 0.035, 0.06, 0, 0.54, 2.36),
-        ];
-        const headGeo = mergeGeometries(headParts);
-        const headMat = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            emissive: 0xf0e878,
-            emissiveIntensity: 0.5,
-            roughness: 0.15,
-            metalness: 0.1,
-        });
-        this.instanceMeshHead = new THREE.InstancedMesh(headGeo, headMat, n);
-        this.instanceMeshHead.frustumCulled = false;
-
-        // ============================================================
-        // LAYER 6: Taillights (emissive)
-        // ============================================================
-        const tailParts = [
-            offBox(0.30, 0.10, 0.06, 0.68, 0.52, -2.14),
-            offBox(0.30, 0.10, 0.06, -0.68, 0.52, -2.14),
-            // Inner LED strip
-            offBox(0.14, 0.04, 0.07, 0.64, 0.58, -2.14),
-            offBox(0.14, 0.04, 0.07, -0.64, 0.58, -2.14),
-        ];
-        const tailGeo = mergeGeometries(tailParts);
-        const tailMat = new THREE.MeshStandardMaterial({
-            color: 0xdd2222,
-            emissive: 0xdd2222,
-            emissiveIntensity: 0.55,
-            roughness: 0.2,
-            metalness: 0.1,
-        });
-        this.instanceMeshTail = new THREE.InstancedMesh(tailGeo, tailMat, n);
-        this.instanceMeshTail.frustumCulled = false;
-
-        // ============================================================
-        // LAYER 7: Wheels (tires + rims, 4 per car)
-        // ============================================================
-        const R = 0.30, T = 0.27;
-        const wheelPositions = [
-            [-1.02, 0.30, 1.30],  // FL
-            [ 1.02, 0.30, 1.30],  // FR
-            [-1.02, 0.30, -1.34], // RL
-            [ 1.02, 0.30, -1.34], // RR
-        ];
-        const wheelParts = [];
-        for (const [wx, wy, wz] of wheelPositions) {
-            // Tire
-            wheelParts.push(offCylZ(R, T, wx, wy, wz, 12));
-            // Rim (slightly narrower, smaller radius)
-            wheelParts.push(offCylZ(R * 0.75, T * 0.3, wx, wy, wz, 10));
-        }
-        const wheelGeo = mergeGeometries(wheelParts);
-        const wheelMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1a1a,
-            roughness: 0.80,
-            metalness: 0.12,
-        });
-        this.instanceMeshWheels = new THREE.InstancedMesh(wheelGeo, wheelMat, n);
-        this.instanceMeshWheels.castShadow = true;
-        this.instanceMeshWheels.frustumCulled = false;
-
-        // ============================================================
-        // LAYER 8: Chrome accents (mirrors, exhaust tips)
-        // ============================================================
-        const chromeParts = [
-            // Mirror arms + housings
-            offBox(0.18, 0.04, 0.05, 0.86, 0.96, 0.38),
-            offBox(0.07, 0.10, 0.16, 0.94, 0.96, 0.38),
-            offBox(0.18, 0.04, 0.05, -0.86, 0.96, 0.38),
-            offBox(0.07, 0.10, 0.16, -0.94, 0.96, 0.38),
-            // Exhaust tips
-            offCylZ(0.05, 0.28, 0.34, 0.34, -2.30, 8),
-            offCylZ(0.05, 0.28, -0.34, 0.34, -2.30, 8),
-        ];
-        const chromeGeo = mergeGeometries(chromeParts);
-        const chromeMat = new THREE.MeshStandardMaterial({
-            color: 0xd0d0d0,
-            roughness: 0.12,
-            metalness: 0.92,
-        });
-        this.instanceMeshChrome = new THREE.InstancedMesh(chromeGeo, chromeMat, n);
-        this.instanceMeshChrome.frustumCulled = false;
-
-        // Collect all layers for unified transform updates
-        this._instanceLayers = [
-            this.instanceMeshBody,
-            this.instanceMeshRoof,
-            this.instanceMeshTrim,
-            this.instanceMeshGlass,
-            this.instanceMeshHead,
-            this.instanceMeshTail,
-            this.instanceMeshWheels,
-            this.instanceMeshChrome,
-        ];
+        // Keep _instanceLayers as empty array for backward compat
+        this._instanceLayers = [];
     }
 
     addToScene(scene) {
-        for (const layer of this._instanceLayers) {
-            scene.add(layer);
+        for (const group of this._aiGroups) {
+            scene.add(group);
         }
     }
 
@@ -1625,24 +1447,28 @@ export class AIController {
             ai.forward.copy(frame.forward);
             ai.up.copy(frame.up);
 
-            this._dummy.position.copy(pos);
-            this._dummy.up.copy(frame.up);
-            this._dummy.lookAt(pos.clone().add(frame.forward));
-            if (ai.isCrashed || ai.crashTimer > 0) {
-                this._dummy.rotateY(ai.crashYaw);
+            // Update the AI car group transform directly
+            const group = this._aiGroups[idx];
+            if (group) {
+                group.position.copy(pos);
+                group.up.copy(frame.up);
+                group.lookAt(pos.clone().add(frame.forward));
+                if (ai.isCrashed || ai.crashTimer > 0) {
+                    group.rotateY(ai.crashYaw);
+                }
+                if (Number.isFinite(ai.driftAngle) && (ai.isDrifting || Math.abs(ai.driftAngle) > 1e-3)) {
+                    group.rotateY(ai.driftAngle * 0.7);
+                }
             }
-            if (Number.isFinite(ai.driftAngle) && (ai.isDrifting || Math.abs(ai.driftAngle) > 1e-3)) {
-                this._dummy.rotateY(ai.driftAngle * 0.7);
-            }
-            this._dummy.updateMatrix();
-            for (const layer of this._instanceLayers) {
-                layer.setMatrixAt(idx, this._dummy.matrix);
+
+            // Brake light: activate when decelerating
+            const tlMat = this._aiTaillightMats[idx];
+            if (tlMat) {
+                const isBraking = ai.speed > ai.targetSpeed + 0.5 || ai.isCrashed;
+                tlMat.emissiveIntensity = isBraking ? 8.0 : 2.0;
+                tlMat.color.setHex(isBraking ? 0xff4444 : 0xda2727);
             }
         });
-
-        for (const layer of this._instanceLayers) {
-            layer.instanceMatrix.needsUpdate = true;
-        }
     }
 
     _sampleTrackFrame(progressT) {

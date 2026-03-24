@@ -241,6 +241,40 @@ Chrome 100+ での動作を推奨します。
 
 ---
 
+## AI生成について
+
+本プロジェクトのソースコード、3Dモデル、ゲームデザイン、ドキュメントは **AI（Claude）** を活用して生成・開発されています。
+
+---
+
 ## ライセンス
 
 (C) 2026 OVAL RUSH Project
+
+本プロジェクトはデュアルライセンスで公開されています。
+
+- **ソースコード:** [MIT License](https://opensource.org/licenses/MIT)
+- **アセット（3Dモデル、画像、音声等）およびドキュメント:** [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)
+
+### MIT License（ソースコード）
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+### CC BY 4.0（アセット・ドキュメント）
+
+アセットおよびドキュメントは CC BY 4.0 の条件に基づき自由に利用できます。
+利用の際は以下のクレジット表記をお願いします。
+
+> OVAL RUSH Project (https://github.com/yuppedev/oval_rush)
