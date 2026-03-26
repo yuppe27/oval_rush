@@ -189,7 +189,7 @@ class Game {
 
             this.cameraController.update(rawDt, this.player, this.raceManager);
             this._updateCourseEnvironment(rawDt);
-            this.courseBuilder.updateAirship(rawDt);
+            this.courseBuilder.updateScenery(rawDt, this.raceManager.state);
             this._updateJumbotron();
             this.hud.update(this.player, this.raceManager, rawDt);
             this.minimap.update(this.player, this.aiController, this.raceManager.state);
@@ -779,7 +779,7 @@ class Game {
             aiLine,
             `CAM ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}`,
             'F1 EXIT  F2 FOCUS  F3 WIREFRAME  F4 RESET  F6 AI',
-            'LMB ORBIT  W A S D PAN  Q/E UP-DOWN  WHEEL ZOOM',
+            'LMB YAW/PITCH  WASD/ARROWS PAN  Q/E UP-DOWN  WHEEL ZOOM',
         ]);
     }
 
@@ -883,7 +883,7 @@ class TitleDemo {
             this.renderer.dirLight.position.set(pPos.x + 50, 80, pPos.z + 30);
             this.renderer.dirLight.target.position.copy(pPos);
             this.renderer.dirLight.target.updateMatrixWorld();
-            this.courseBuilder.updateAirship(rawDt);
+            this.courseBuilder.updateScenery(rawDt, 'racing');
             this.cameraController.update(rawDt, this.player, null);
             this.renderer.updateSky(this.cameraController.camera);
             this.renderer.render(this.cameraController.camera);

@@ -23,6 +23,8 @@ export class CourseBuilder {
         this._jumbotronCtx = null;
         this._jumbotronTexture = null;
         this._curveSignTextureCache = new Map();
+        this._airship = null;
+        this._seasidePlane = null;
         /** Meshes that can occlude the chase camera (tunnel ceilings, overburden, etc.) */
         this.cameraOccluders = [];
     }
@@ -31,6 +33,8 @@ export class CourseBuilder {
         this.group.clear();
         this.cameraOccluders = [];
         this.courseData = courseData;
+        this._airship = null;
+        this._seasidePlane = null;
         const points = courseData.controlPoints.map(
             cp => new THREE.Vector3(cp.x, cp.y, cp.z)
         );
@@ -767,6 +771,122 @@ export class CourseBuilder {
         a.group.rotation.y = -a.angle + Math.PI / 2;
     }
 
+    updateScenery(dt, raceState = 'idle') {
+        this.updateAirship(dt);
+        this._updateSeasidePlane(dt, raceState);
+    }
+
+    _updateSeasidePlane(dt, raceState) {
+        if (!this._seasidePlane) return;
+
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._seasidePlane;
+
+        if (!active) {
+            state.group.visible = false;
+            state.leftTrail.line.visible = false;
+            state.rightTrail.line.visible = false;
+            if (state.active) {
+                state.active = false;
+                state.sampleTimer = 0;
+                this._resetContrail(state.leftTrail);
+                this._resetContrail(state.rightTrail);
+            }
+            return;
+        }
+
+        state.group.visible = true;
+        state.leftTrail.line.visible = true;
+        state.rightTrail.line.visible = true;
+        state.active = true;
+        state.time += dt;
+
+        const loopT = (state.time % state.loopDuration) / state.loopDuration;
+        const nextLoopT = ((state.time + 0.15) % state.loopDuration) / state.loopDuration;
+        const pos = this._sampleSeasidePlanePosition(state, loopT);
+        const nextPos = this._sampleSeasidePlanePosition(state, nextLoopT);
+        const forward = nextPos.clone().sub(pos).normalize();
+        const curve = Math.cos(loopT * Math.PI * 2 * 0.92);
+        const bank = THREE.MathUtils.degToRad(curve * 16);
+
+        state.group.position.copy(pos);
+        state.group.quaternion.setFromUnitVectors(state.forwardAxis, forward);
+        state.group.rotateX(bank);
+
+        state.sampleTimer += dt;
+        if (state.leftTrail.points.length === 0 || state.rightTrail.points.length === 0) {
+            this._appendContrailPoint(state.leftTrail, state.leftAnchor, state);
+            this._appendContrailPoint(state.rightTrail, state.rightAnchor, state);
+        }
+        while (state.sampleTimer >= state.sampleInterval) {
+            state.sampleTimer -= state.sampleInterval;
+            this._appendContrailPoint(state.leftTrail, state.leftAnchor, state);
+            this._appendContrailPoint(state.rightTrail, state.rightAnchor, state);
+        }
+        this._syncContrailHead(state.leftTrail, state.leftAnchor);
+        this._syncContrailHead(state.rightTrail, state.rightAnchor);
+
+        this._refreshContrail(state.leftTrail);
+        this._refreshContrail(state.rightTrail);
+    }
+
+    _sampleSeasidePlanePosition(state, t) {
+        const arc = Math.PI * 2 * t;
+        const centeredT = t * 2 - 1;
+        const pos = state.crossPoint.clone()
+            .addScaledVector(state.crossDir, centeredT * state.crossSpan)
+            .addScaledVector(state.driftDir, Math.sin(arc) * state.driftSpan);
+        pos.y = state.crossPoint.y + state.altitude + Math.sin(arc - 0.35) * 8;
+        return pos;
+    }
+
+    _appendContrailPoint(trail, anchor, planeState) {
+        const worldPos = anchor.getWorldPosition(new THREE.Vector3());
+        const localPos = this.group.worldToLocal(worldPos);
+        trail.points.push(localPos);
+        if (trail.points.length > planeState.maxTrailPoints) {
+            trail.points.shift();
+        }
+    }
+
+    _syncContrailHead(trail, anchor) {
+        const worldPos = anchor.getWorldPosition(new THREE.Vector3());
+        const localPos = this.group.worldToLocal(worldPos);
+        if (trail.points.length === 0) {
+            trail.points.push(localPos);
+            return;
+        }
+        trail.points[trail.points.length - 1].copy(localPos);
+    }
+
+    _refreshContrail(trail) {
+        const pointCount = trail.points.length;
+        if (pointCount === 0) {
+            trail.geometry.setDrawRange(0, 0);
+            return;
+        }
+
+        for (let i = 0; i < pointCount; i++) {
+            const p = trail.points[i];
+            const idx = i * 3;
+            trail.positions[idx] = p.x;
+            trail.positions[idx + 1] = p.y;
+            trail.positions[idx + 2] = p.z;
+        }
+        trail.geometry.attributes.position.needsUpdate = true;
+        trail.geometry.setDrawRange(0, pointCount);
+        trail.geometry.computeBoundingSphere();
+    }
+
+    _resetContrail(trail) {
+        trail.points.length = 0;
+        trail.geometry.setDrawRange(0, 0);
+        trail.geometry.attributes.position.needsUpdate = true;
+    }
+
     _buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight) {
         const startSp = this.sampledPoints[this.startLineIndex];
         if (!startSp) return;
@@ -1054,6 +1174,148 @@ export class CourseBuilder {
         this._buildSeasideTunnel();
         this._buildLighthouse();
         this._buildOffshoreShips();
+        this._buildSeasidePlane();
+    }
+
+    _buildSeasidePlane() {
+        const center = new THREE.Vector3();
+        for (const sp of this.sampledPoints) {
+            center.add(sp.position);
+        }
+        center.multiplyScalar(1 / Math.max(1, this.sampledPoints.length));
+        const focusIndex = (this.startLineIndex + Math.floor(this.sampleCount * 0.08)) % this.sampledPoints.length;
+        const focusSp = this.sampledPoints[focusIndex] || this.sampledPoints[this.startLineIndex];
+        const crossPoint = focusSp.position.clone().addScaledVector(focusSp.forward, 18);
+
+        const planeGroup = new THREE.Group();
+
+        const fuselageMat = new THREE.MeshStandardMaterial({
+            color: 0xf3f6fb,
+            roughness: 0.42,
+            metalness: 0.18,
+        });
+        const accentMat = new THREE.MeshStandardMaterial({
+            color: 0xe25454,
+            roughness: 0.5,
+            metalness: 0.1,
+        });
+        const canopyMat = new THREE.MeshStandardMaterial({
+            color: 0x6d889d,
+            emissive: 0x2d3d4a,
+            emissiveIntensity: 0.22,
+            roughness: 0.24,
+            metalness: 0.48,
+        });
+
+        const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(1.2, 10, 6, 12), fuselageMat);
+        fuselage.rotation.z = -Math.PI / 2;
+        fuselage.castShadow = true;
+        planeGroup.add(fuselage);
+
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(1.15, 2.8, 12), accentMat);
+        nose.rotation.z = -Math.PI / 2;
+        nose.position.x = 6.4;
+        nose.castShadow = true;
+        planeGroup.add(nose);
+
+        const wings = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.18, 16), fuselageMat);
+        wings.position.set(-0.2, 0.1, 0);
+        wings.castShadow = true;
+        planeGroup.add(wings);
+
+        const stabilizer = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.14, 6.6), fuselageMat);
+        stabilizer.position.set(-4.9, 1.05, 0);
+        stabilizer.castShadow = true;
+        planeGroup.add(stabilizer);
+
+        const tailFin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 0.18), accentMat);
+        tailFin.position.set(-5.4, 1.6, 0);
+        tailFin.castShadow = true;
+        planeGroup.add(tailFin);
+
+        const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.05, 10, 8), canopyMat);
+        canopy.scale.set(1.2, 0.75, 0.75);
+        canopy.position.set(1.4, 0.9, 0);
+        planeGroup.add(canopy);
+
+        const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.45, 1.1, 10), accentMat);
+        engine.rotation.z = Math.PI / 2;
+        engine.position.set(5.0, -0.15, 0);
+        engine.castShadow = true;
+        planeGroup.add(engine);
+
+        const propHub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.4, 8), accentMat);
+        propHub.rotation.z = Math.PI / 2;
+        propHub.position.set(5.78, -0.15, 0);
+        planeGroup.add(propHub);
+
+        for (const rot of [0, Math.PI / 2]) {
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.2, 0.18), new THREE.MeshStandardMaterial({
+                color: 0x31363c,
+                roughness: 0.62,
+                metalness: 0.12,
+            }));
+            blade.position.set(5.95, -0.15, 0);
+            blade.rotation.x = rot;
+            planeGroup.add(blade);
+        }
+
+        planeGroup.scale.setScalar(1.45);
+        planeGroup.visible = false;
+        this.group.add(planeGroup);
+
+        const leftAnchor = new THREE.Object3D();
+        leftAnchor.position.set(-2.8, 0.05, -7.8);
+        planeGroup.add(leftAnchor);
+
+        const rightAnchor = new THREE.Object3D();
+        rightAnchor.position.set(-2.8, 0.05, 7.8);
+        planeGroup.add(rightAnchor);
+
+        const createContrail = () => {
+            const maxPoints = 56;
+            const positions = new Float32Array(maxPoints * 3);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setDrawRange(0, 0);
+            const material = new THREE.LineBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.62,
+                depthWrite: false,
+            });
+            const line = new THREE.Line(geometry, material);
+            line.frustumCulled = false;
+            line.visible = false;
+            this.group.add(line);
+            return { line, geometry, positions, points: [] };
+        };
+
+        const leftTrail = createContrail();
+        const rightTrail = createContrail();
+
+        this._seasidePlane = {
+            group: planeGroup,
+            leftAnchor,
+            rightAnchor,
+            leftTrail,
+            rightTrail,
+            cx: center.x,
+            cz: center.z,
+            crossPoint,
+            crossDir: focusSp.right.clone().normalize(),
+            driftDir: focusSp.forward.clone().normalize(),
+            altitude: 98,
+            crossSpan: 360,
+            driftSpan: 72,
+            loopDuration: 24,
+            sampleInterval: 0.14,
+            maxTrailPoints: 56,
+            sampleTimer: 0,
+            time: 24 * 0.18,
+            active: false,
+            forwardAxis: new THREE.Vector3(1, 0, 0),
+        };
     }
 
     _buildSeasideTerrain() {
@@ -1394,7 +1656,7 @@ export class CourseBuilder {
         const ships = [
             // Spread ships widely across the offshore horizon so they read as separate distant vessels.
             { x: -980, z: -320, rotY: 0.5, scale: 1.9 },
-            { x: -760, z: 320, rotY: 0.12, scale: 1.5 },
+            { x: -980, z: 460, rotY: 0.12, scale: 1.5 },
         ];
 
         for (const ship of ships) {

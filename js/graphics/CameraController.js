@@ -119,7 +119,7 @@ export class CameraController {
 
     updateDebug(dt, input) {
         const move = input?.getDebugCameraInput?.() || { forward: 0, right: 0, vertical: 0, fast: false };
-        const panSpeed = move.fast ? 48 : 22;
+        const panSpeed = move.fast ? 180 : 90;
 
         if (move.forward || move.right || move.vertical) {
             this._debugPanForward.copy(this._debugTarget).sub(this.camera.position);
@@ -128,7 +128,7 @@ export class CameraController {
                 this._debugPanForward.set(Math.sin(this._debugYaw), 0, Math.cos(this._debugYaw));
             }
             this._debugPanForward.normalize();
-            this._debugPanRight.crossVectors(new THREE.Vector3(0, 1, 0), this._debugPanForward);
+            this._debugPanRight.crossVectors(this._debugPanForward, new THREE.Vector3(0, 1, 0));
             this._debugPanRight.normalize();
 
             this._debugTarget.addScaledVector(this._debugPanForward, move.forward * panSpeed * dt);
