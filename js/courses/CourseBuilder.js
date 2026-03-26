@@ -24,6 +24,7 @@ export class CourseBuilder {
         this._jumbotronTexture = null;
         this._curveSignTextureCache = new Map();
         this._airship = null;
+        this._mountainCloudBreak = null;
         this._seasidePlane = null;
         /** Meshes that can occlude the chase camera (tunnel ceilings, overburden, etc.) */
         this.cameraOccluders = [];
@@ -34,6 +35,7 @@ export class CourseBuilder {
         this.cameraOccluders = [];
         this.courseData = courseData;
         this._airship = null;
+        this._mountainCloudBreak = null;
         this._seasidePlane = null;
         const points = courseData.controlPoints.map(
             cp => new THREE.Vector3(cp.x, cp.y, cp.z)
@@ -771,9 +773,10 @@ export class CourseBuilder {
         a.group.rotation.y = -a.angle + Math.PI / 2;
     }
 
-    updateScenery(dt, raceState = 'idle') {
+    updateScenery(dt, raceState = 'idle', nearestIndex = null) {
         this.updateAirship(dt);
         this._updateSeasidePlane(dt, raceState);
+        this._updateMountainCloudBreak(dt, raceState, nearestIndex);
     }
 
     _updateSeasidePlane(dt, raceState) {
@@ -885,6 +888,100 @@ export class CourseBuilder {
         trail.points.length = 0;
         trail.geometry.setDrawRange(0, 0);
         trail.geometry.attributes.position.needsUpdate = true;
+    }
+
+    _updateMountainCloudBreak(dt, raceState, nearestIndex) {
+        if (!this._mountainCloudBreak) return;
+
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._mountainCloudBreak;
+
+        if (!active) {
+            state.group.visible = false;
+            return;
+        }
+
+        state.group.visible = true;
+        state.time += dt;
+        const cloudBreak = nearestIndex === null
+            ? { active: false, entryDensity: 0, reveal: 0, whiteout: 0, burst: 0 }
+            : this._getCloudBreakthroughState(this.sampledPoints[nearestIndex]?.t ?? 0);
+        const zoneInfluence = cloudBreak.active ? 0.4 + cloudBreak.entryDensity * 0.6 : 0.28;
+
+        for (const sheet of state.sheets) {
+            const sway = Math.sin(state.time * sheet.speed + sheet.phase);
+            const rise = Math.cos(state.time * (sheet.speed * 0.55) + sheet.phase) * 1.8;
+            sheet.mesh.position.copy(sheet.basePosition)
+                .addScaledVector(sheet.driftAxis, sway * sheet.driftAmplitude)
+                .addScaledVector(sheet.upAxis, rise);
+            sheet.mesh.material.opacity = sheet.baseOpacity * THREE.MathUtils.clamp(
+                0.30 + cloudBreak.whiteout * 1.6 + cloudBreak.entryDensity * 0.45 - cloudBreak.reveal * 0.16,
+                0.18,
+                1.35
+            );
+        }
+
+        for (const puff of state.puffs) {
+            const drift = Math.sin(state.time * puff.speed + puff.phase);
+            const lift = Math.cos(state.time * (puff.speed * 0.7) + puff.phase) * 2.2;
+            puff.mesh.position.copy(puff.basePosition)
+                .addScaledVector(puff.driftAxis, drift * puff.driftAmplitude)
+                .addScaledVector(puff.upAxis, lift);
+
+            const opacityScale = THREE.MathUtils.clamp(
+                (0.55 + zoneInfluence * 0.85) - cloudBreak.reveal * 0.28,
+                0.18,
+                1.05
+            );
+            puff.mesh.material.opacity = puff.baseOpacity * opacityScale;
+        }
+    }
+
+    _getCloudBreakthroughState(t) {
+        const zone = this.courseData?.zones?.cloudBreak?.[0];
+        if (!zone || !this._isTInZone(t, zone.start, zone.end)) {
+            return { active: false, progress: 0, entryDensity: 0, reveal: 0, whiteout: 0, burst: 0 };
+        }
+
+        const progress = this._getZoneProgress(t, zone.start, zone.end);
+        const entry = THREE.MathUtils.smoothstep(progress, 0.02, 0.20);
+        const exitFade = 1 - THREE.MathUtils.smoothstep(progress, 0.58, 0.86);
+        const entryDensity = THREE.MathUtils.clamp(entry * exitFade, 0, 1);
+        const reveal = THREE.MathUtils.smoothstep(progress, 0.56, 0.94);
+        const whiteout = THREE.MathUtils.clamp(
+            THREE.MathUtils.smoothstep(progress, 0.04, 0.16)
+            * (1 - THREE.MathUtils.smoothstep(progress, 0.34, 0.58)),
+            0,
+            1
+        );
+        const burst = THREE.MathUtils.clamp(
+            THREE.MathUtils.smoothstep(progress, 0.62, 0.76)
+            * (1 - THREE.MathUtils.smoothstep(progress, 0.84, 0.98)),
+            0,
+            1
+        );
+
+        return {
+            active: true,
+            progress,
+            entryDensity,
+            reveal,
+            whiteout,
+            burst,
+        };
+    }
+
+    _getZoneProgress(t, start, end) {
+        if (start === end) return 0;
+        if (start < end) {
+            return THREE.MathUtils.clamp((t - start) / (end - start), 0, 1);
+        }
+
+        const wrappedT = t < start ? t + 1 : t;
+        return THREE.MathUtils.clamp((wrappedT - start) / ((end + 1) - start), 0, 1);
     }
 
     _buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight) {
@@ -2438,6 +2535,7 @@ export class CourseBuilder {
         this._buildMountainCastle();
         this._buildMountainWaterfall();
         this._buildMountainCloudSea();
+        this._buildMountainCloudBreakthrough();
         this._buildMountainJumpRamps();
     }
 
@@ -3166,6 +3264,123 @@ export class CourseBuilder {
         }
     }
 
+    _buildMountainCloudBreakthrough() {
+        const zone = this.courseData?.zones?.cloudBreak?.[0];
+        if (!zone) return;
+
+        const startIdx = this._findSampleIndexAt(zone.start);
+        const endIdx = this._findSampleIndexAt(zone.end);
+        const indices = this._collectWrappedIndices(startIdx, endIdx);
+        if (!indices.length) return;
+
+        const group = new THREE.Group();
+        const sheets = [];
+        const puffs = [];
+        const step = Math.max(1, Math.floor(indices.length / 7));
+        const offsets = [
+            { side: -1.05, up: 7, scale: 26, depth: -3.2 },
+            { side: -0.35, up: 11, scale: 24, depth: 2.8 },
+            { side: 0.0, up: 9, scale: 32, depth: 0 },
+            { side: 0.45, up: 12, scale: 24, depth: -3.8 },
+            { side: 1.15, up: 8, scale: 22, depth: 2.4 },
+        ];
+
+        for (let i = 0; i < indices.length; i += step) {
+            const sp = this.sampledPoints[indices[i]];
+            if (!sp) continue;
+
+            const progress = indices.length <= 1 ? 0 : i / (indices.length - 1);
+            const sheetCount = progress < 0.8 ? 2 : 1;
+            for (let s = 0; s < sheetCount; s++) {
+                const sheetWidth = sp.width + 34 + (1 - progress) * 16;
+                const sheetHeight = 22 + (1 - progress) * 8 + s * 2;
+                const sheet = new THREE.Mesh(
+                    new THREE.PlaneGeometry(sheetWidth, sheetHeight),
+                    new THREE.MeshStandardMaterial({
+                        color: 0xf7fbfd,
+                        transparent: true,
+                        opacity: 0.38 + (1 - progress) * 0.16,
+                        roughness: 1,
+                        depthWrite: false,
+                        side: THREE.DoubleSide,
+                    })
+                );
+                const depthOffset = (s === 0 ? -4.5 : 5.0) + (0.5 - progress) * 5;
+                const basePosition = sp.position.clone()
+                    .addScaledVector(sp.up, 8 + (1 - progress) * 4 + s * 1.6)
+                    .addScaledVector(sp.forward, depthOffset);
+                const basis = new THREE.Matrix4().makeBasis(
+                    sp.right.clone().normalize(),
+                    sp.up.clone().normalize(),
+                    sp.forward.clone().normalize()
+                );
+                sheet.quaternion.setFromRotationMatrix(basis);
+                sheet.rotateY((s === 0 ? -0.32 : 0.32) + progress * 0.18);
+                sheet.position.copy(basePosition);
+                group.add(sheet);
+                sheets.push({
+                    mesh: sheet,
+                    basePosition,
+                    driftAxis: sp.right.clone().normalize(),
+                    upAxis: sp.up.clone().normalize(),
+                    driftAmplitude: 2.0 + s * 0.6,
+                    speed: 0.30 + progress * 0.08 + s * 0.04,
+                    phase: progress * Math.PI * 2 + s * 0.9,
+                    baseOpacity: sheet.material.opacity,
+                });
+            }
+
+            for (let j = 0; j < offsets.length; j++) {
+                const config = offsets[j];
+                const circle = new THREE.Mesh(
+                    new THREE.CircleGeometry(config.scale, 24),
+                    new THREE.MeshStandardMaterial({
+                        color: 0xf1f6f9,
+                        transparent: true,
+                        opacity: 0.34 + (1 - progress) * 0.12,
+                        roughness: 1,
+                        depthWrite: false,
+                        side: THREE.DoubleSide,
+                    })
+                );
+                const basePosition = sp.position.clone()
+                    .addScaledVector(sp.right, config.side * (sp.width * 0.55 + 12))
+                    .addScaledVector(sp.up, config.up)
+                    .addScaledVector(sp.forward, config.depth);
+                const basis = new THREE.Matrix4().makeBasis(
+                    sp.right.clone().normalize(),
+                    sp.up.clone().normalize(),
+                    sp.forward.clone().normalize()
+                );
+                circle.quaternion.setFromRotationMatrix(basis);
+                circle.rotateY((j - 2) * 0.35);
+                circle.position.copy(basePosition);
+                circle.receiveShadow = false;
+                group.add(circle);
+
+                puffs.push({
+                    mesh: circle,
+                    basePosition,
+                    driftAxis: sp.right.clone().normalize(),
+                    upAxis: sp.up.clone().normalize(),
+                    driftAmplitude: 2.8 + (j % 3) * 1.6,
+                    speed: 0.35 + j * 0.05,
+                    phase: progress * Math.PI * 2 + j * 0.55,
+                    baseOpacity: circle.material.opacity,
+                });
+            }
+        }
+
+        group.visible = false;
+        this.group.add(group);
+        this._mountainCloudBreak = {
+            group,
+            sheets,
+            puffs,
+            time: 0,
+        };
+    }
+
     _buildMountainJumpRamps() {
         const jumpZones = this.courseData?.zones?.jump || [];
         const rampMat = new THREE.MeshStandardMaterial({ color: 0x695f57, roughness: 0.96 });
@@ -3287,6 +3502,7 @@ export class CourseBuilder {
             surfaceType: sp.surfaceType ?? 'asphalt',
             grip: sp.grip ?? 1,
             jump: sp.jump ?? null,
+            cloudBreak: this._getCloudBreakthroughState(sp.t),
         };
     }
 

@@ -161,7 +161,10 @@ const MOUNTAIN_APEX_BASE = {
         ],
         mist: [
             { start: 0.05, end: 0.18, density: 0.45 },
-            { start: 0.52, end: 0.68, density: 0.62 },
+            { start: 0.30, end: 0.47, density: 0.78 },
+        ],
+        cloudBreak: [
+            { start: 0.30, end: 0.47 },
         ],
     },
 };

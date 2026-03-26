@@ -47,6 +47,13 @@ class Game {
         this._debugShowAI = false;
         this._debugSceneState = null;
         this._debugPreviousCameraMode = 'chase';
+        this._baseFogColor = new THREE.Color();
+        this._targetFogColor = new THREE.Color();
+        this._mountainFogWhiteoutColor = new THREE.Color(0xf5f8fb);
+        this._mountainFogDenseColor = new THREE.Color(0xdfe7ed);
+        this._mountainFogRevealColor = new THREE.Color(0xf2efe4);
+        this._mountainFogBurstColor = new THREE.Color(0xfff4dc);
+        this._mountainBreakOverlay = this._createMountainBreakOverlay();
         this.audio.setRaceMusicTrack(this._courseId);
 
         this.renderer = new Renderer(canvas, { quality: this._quality });
@@ -189,7 +196,7 @@ class Game {
 
             this.cameraController.update(rawDt, this.player, this.raceManager);
             this._updateCourseEnvironment(rawDt);
-            this.courseBuilder.updateScenery(rawDt, this.raceManager.state);
+            this.courseBuilder.updateScenery(rawDt, this.raceManager.state, this.player.nearestIndex);
             this._updateJumbotron();
             this.hud.update(this.player, this.raceManager, rawDt);
             this.minimap.update(this.player, this.aiController, this.raceManager.state);
@@ -360,6 +367,7 @@ class Game {
         this.input.destroy();
         this.cameraController.dispose();
         this.renderer.dispose();
+        this._disposeMountainBreakOverlay();
     }
 
     _getRollingStartFormation() {
@@ -514,6 +522,8 @@ class Game {
 
     _applyCourseAtmosphere(courseId) {
         this.renderer.setSky(courseId);
+        this._baseFogColor.setHex(this.renderer.skyDome.fogHex);
+        this.renderer.scene.fog.color.copy(this._baseFogColor);
         if (courseId === 'seaside') {
             this.renderer.scene.fog.near = 180;
             this.renderer.scene.fog.far = 760;
@@ -544,16 +554,45 @@ class Game {
         const env = this.courseBuilder.getEnvironmentState(this.player.nearestIndex);
         const tunnelLight = env.tunnelLighting ?? 1;
         const mistDensity = env.mistDensity ?? 0;
-        const ambientTarget = this.courseData.id === 'seaside'
+        const cloudBreak = env.cloudBreak ?? { entryDensity: 0, reveal: 0, whiteout: 0, burst: 0 };
+        const cloudEntry = cloudBreak.entryDensity ?? 0;
+        const cloudReveal = cloudBreak.reveal ?? 0;
+        const cloudWhiteout = cloudBreak.whiteout ?? 0;
+        const cloudBurst = cloudBreak.burst ?? 0;
+        let ambientTarget = this.courseData.id === 'seaside'
             ? 0.32 + tunnelLight * 0.38
             : 0.56 - mistDensity * 0.12;
-        const dirTarget = this.courseData.id === 'seaside'
+        let dirTarget = this.courseData.id === 'seaside'
             ? 0.42 + tunnelLight * 0.58
             : 0.88 - mistDensity * 0.18;
         const fogNearBase = this.courseData.id === 'mountain' ? 120 : 180;
         const fogFarBase = this.courseData.id === 'mountain' ? 620 : 760;
-        const fogNearTarget = fogNearBase - mistDensity * 35;
-        const fogFarTarget = fogFarBase - mistDensity * 150 - (1 - tunnelLight) * 120;
+        let fogNearTarget = fogNearBase - mistDensity * 35;
+        let fogFarTarget = fogFarBase - mistDensity * 150 - (1 - tunnelLight) * 120;
+
+        if (this.courseData.id === 'mountain') {
+            const denseAmbient = 0.34;
+            const denseDir = 0.46;
+            const revealAmbient = 0.78;
+            const revealDir = 1.18;
+            ambientTarget = THREE.MathUtils.lerp(ambientTarget, 0.22, cloudWhiteout);
+            dirTarget = THREE.MathUtils.lerp(dirTarget, 0.26, cloudWhiteout);
+            ambientTarget = THREE.MathUtils.lerp(ambientTarget, denseAmbient, cloudEntry);
+            dirTarget = THREE.MathUtils.lerp(dirTarget, denseDir, cloudEntry);
+            ambientTarget = THREE.MathUtils.lerp(ambientTarget, revealAmbient, cloudReveal);
+            dirTarget = THREE.MathUtils.lerp(dirTarget, revealDir, cloudReveal);
+            ambientTarget = THREE.MathUtils.lerp(ambientTarget, 0.98, cloudBurst);
+            dirTarget = THREE.MathUtils.lerp(dirTarget, 1.34, cloudBurst);
+
+            fogNearTarget = THREE.MathUtils.lerp(fogNearTarget, 6, cloudWhiteout);
+            fogFarTarget = THREE.MathUtils.lerp(fogFarTarget, 34, cloudWhiteout);
+            fogNearTarget = THREE.MathUtils.lerp(fogNearTarget, 16, cloudEntry);
+            fogFarTarget = THREE.MathUtils.lerp(fogFarTarget, 96, cloudEntry);
+            fogNearTarget = THREE.MathUtils.lerp(fogNearTarget, 210, cloudReveal);
+            fogFarTarget = THREE.MathUtils.lerp(fogFarTarget, 1180, cloudReveal);
+            fogNearTarget = THREE.MathUtils.lerp(fogNearTarget, 300, cloudBurst);
+            fogFarTarget = THREE.MathUtils.lerp(fogFarTarget, 1550, cloudBurst);
+        }
 
         this.renderer.ambientLight.intensity = THREE.MathUtils.lerp(
             this.renderer.ambientLight.intensity, ambientTarget, dt * 3
@@ -561,8 +600,58 @@ class Game {
         this.renderer.dirLight.intensity = THREE.MathUtils.lerp(
             this.renderer.dirLight.intensity, dirTarget, dt * 3
         );
-        this.renderer.scene.fog.near = THREE.MathUtils.lerp(this.renderer.scene.fog.near, fogNearTarget, dt * 2.5);
-        this.renderer.scene.fog.far = THREE.MathUtils.lerp(this.renderer.scene.fog.far, fogFarTarget, dt * 2.5);
+        this.renderer.scene.fog.near = THREE.MathUtils.lerp(this.renderer.scene.fog.near, fogNearTarget, dt * 3.4);
+        this.renderer.scene.fog.far = THREE.MathUtils.lerp(this.renderer.scene.fog.far, fogFarTarget, dt * 3.4);
+        this._targetFogColor.copy(this._baseFogColor);
+        if (this.courseData.id === 'mountain') {
+            this._targetFogColor.lerp(this._mountainFogWhiteoutColor, cloudWhiteout * 0.96);
+            this._targetFogColor.lerp(this._mountainFogDenseColor, cloudEntry * 0.88);
+            this._targetFogColor.lerp(this._mountainFogRevealColor, cloudReveal * 0.95);
+            this._targetFogColor.lerp(this._mountainFogBurstColor, cloudBurst * 0.88);
+        }
+        this.renderer.scene.fog.color.lerp(this._targetFogColor, dt * 3.1);
+        this._updateMountainBreakOverlay(cloudWhiteout, cloudBurst, cloudReveal);
+    }
+
+    _createMountainBreakOverlay() {
+        const el = document.createElement('div');
+        el.id = 'mountain-break-overlay';
+        Object.assign(el.style, {
+            position: 'fixed',
+            inset: '0',
+            zIndex: '8',
+            pointerEvents: 'none',
+            opacity: '0',
+            background: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.0) 0%, rgba(255,255,255,0.0) 36%, rgba(232,240,246,0.14) 72%, rgba(232,240,246,0.34) 100%)',
+            mixBlendMode: 'screen',
+        });
+        document.body.appendChild(el);
+        return el;
+    }
+
+    _updateMountainBreakOverlay(whiteout = 0, burst = 0, reveal = 0) {
+        if (!this._mountainBreakOverlay) return;
+        const active = this.courseData.id === 'mountain';
+        const overlay = this._mountainBreakOverlay;
+        if (!active) {
+            overlay.style.opacity = '0';
+            return;
+        }
+
+        const opacity = Math.max(whiteout * 0.82, burst * 0.46, reveal * 0.12);
+        const edge = Math.min(1, 0.18 + whiteout * 0.62 + burst * 0.2);
+        const center = Math.min(0.82, whiteout * 0.48 + burst * 0.18);
+        const warm = Math.min(1, burst * 0.9 + reveal * 0.25);
+        const outerColor = `rgba(${Math.round(235 + warm * 20)}, ${Math.round(242 + warm * 7)}, ${Math.round(248 - warm * 20)}, ${edge.toFixed(3)})`;
+        const centerColor = `rgba(255, 255, 255, ${center.toFixed(3)})`;
+        overlay.style.opacity = opacity.toFixed(3);
+        overlay.style.background = `radial-gradient(circle at 50% 52%, ${centerColor} 0%, rgba(255,255,255,0.0) 34%, ${outerColor} 78%, ${outerColor} 100%)`;
+    }
+
+    _disposeMountainBreakOverlay() {
+        if (!this._mountainBreakOverlay) return;
+        this._mountainBreakOverlay.remove();
+        this._mountainBreakOverlay = null;
     }
 
     _processDebugInput() {
@@ -883,7 +972,7 @@ class TitleDemo {
             this.renderer.dirLight.position.set(pPos.x + 50, 80, pPos.z + 30);
             this.renderer.dirLight.target.position.copy(pPos);
             this.renderer.dirLight.target.updateMatrixWorld();
-            this.courseBuilder.updateScenery(rawDt, 'racing');
+            this.courseBuilder.updateScenery(rawDt, 'racing', this.player.nearestIndex);
             this.cameraController.update(rawDt, this.player, null);
             this.renderer.updateSky(this.cameraController.camera);
             this.renderer.render(this.cameraController.camera);
