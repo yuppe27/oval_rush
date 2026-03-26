@@ -1053,6 +1053,7 @@ export class CourseBuilder {
         this._buildSeasideCliffs();
         this._buildSeasideTunnel();
         this._buildLighthouse();
+        this._buildOffshoreShips();
     }
 
     _buildSeasideTerrain() {
@@ -1380,6 +1381,70 @@ export class CourseBuilder {
         const lantern = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 7, 8), topMat);
         lantern.position.set(safeBasePos.x, safeBasePos.y + 23, safeBasePos.z);
         this.group.add(lantern);
+    }
+
+    _buildOffshoreShips() {
+        const waterY = -3.5;
+        const hullMat = new THREE.MeshStandardMaterial({ color: 0x2c3e6b, roughness: 0.7, metalness: 0.15 });
+        const deckMat = new THREE.MeshStandardMaterial({ color: 0x8b6f47, roughness: 0.85 });
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.8 });
+        const funnelMat = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6 });
+        const mastMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.9 });
+
+        const ships = [
+            // Spread ships widely across the offshore horizon so they read as separate distant vessels.
+            { x: -980, z: -320, rotY: 0.5, scale: 1.9 },
+            { x: -760, z: 320, rotY: 0.12, scale: 1.5 },
+        ];
+
+        for (const ship of ships) {
+            const group = new THREE.Group();
+            // Sink the hull a little into the water plane so the ships do not appear grounded.
+            group.position.set(ship.x, waterY - 1.0, ship.z);
+            group.rotation.y = ship.rotY;
+            group.scale.setScalar(ship.scale);
+
+            // Hull — tapered box shape
+            const hullLen = 40, hullW = 12, hullH = 6;
+            const hull = new THREE.Mesh(new THREE.BoxGeometry(hullLen, hullH, hullW), hullMat);
+            hull.position.y = hullH / 2;
+            hull.castShadow = true;
+            group.add(hull);
+
+            // Bow taper
+            const bowGeo = new THREE.ConeGeometry(hullW / 2, 10, 4);
+            bowGeo.rotateZ(-Math.PI / 2);
+            const bow = new THREE.Mesh(bowGeo, hullMat);
+            bow.position.set(hullLen / 2 + 4, hullH / 2, 0);
+            bow.castShadow = true;
+            group.add(bow);
+
+            // Deck
+            const deck = new THREE.Mesh(new THREE.BoxGeometry(hullLen - 2, 0.5, hullW - 2), deckMat);
+            deck.position.y = hullH + 0.25;
+            group.add(deck);
+
+            // Cabin
+            const cabinW = 14, cabinH = 6, cabinD = 8;
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabinW, cabinH, cabinD), cabinMat);
+            cabin.position.set(-4, hullH + cabinH / 2 + 0.5, 0);
+            cabin.castShadow = true;
+            group.add(cabin);
+
+            // Funnel (smokestack)
+            const funnel = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 5, 6), funnelMat);
+            funnel.position.set(-4, hullH + cabinH + 3, 0);
+            funnel.castShadow = true;
+            group.add(funnel);
+
+            // Mast
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 14, 4), mastMat);
+            mast.position.set(8, hullH + 7.5, 0);
+            mast.castShadow = true;
+            group.add(mast);
+
+            this.group.add(group);
+        }
     }
 
     _buildTunnelMountain() {
