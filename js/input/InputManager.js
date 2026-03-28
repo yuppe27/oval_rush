@@ -8,7 +8,7 @@ const GAME_KEYS = new Set([
     'KeyZ', 'KeyX', 'KeyC', 'Space',
 ]);
 
-const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4', 'F6', 'F8', 'F9']);
+const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F8', 'F9']);
 
 export class InputManager {
     constructor() {
@@ -26,6 +26,7 @@ export class InputManager {
         this._debugAIToggleRequested = false;
         this._debugTimeScaleRequested = false;
         this._debugStepRequested = false;
+        this._debugSkipToFinishRequested = false;
 
         this._gpPrevButtons = {};
 
@@ -50,6 +51,7 @@ export class InputManager {
                 if (e.code === 'F2') this._debugFocusRequested = true;
                 if (e.code === 'F3') this._debugWireframeRequested = true;
                 if (e.code === 'F4') this._debugResetRequested = true;
+                if (e.code === 'F5') this._debugSkipToFinishRequested = true;
                 if (e.code === 'F6') this._debugAIToggleRequested = true;
                 if (e.code === 'F8') this._debugTimeScaleRequested = true;
                 if (e.code === 'F9') this._debugStepRequested = true;
@@ -193,6 +195,12 @@ export class InputManager {
     consumeDebugStep() {
         const value = this._debugStepRequested;
         this._debugStepRequested = false;
+        return value;
+    }
+
+    consumeDebugSkipToFinish() {
+        const value = this._debugSkipToFinishRequested;
+        this._debugSkipToFinishRequested = false;
         return value;
     }
 

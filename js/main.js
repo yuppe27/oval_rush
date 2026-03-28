@@ -666,6 +666,7 @@ class Game {
             this.input.consumeDebugAIToggle();
             this.input.consumeDebugTimeScale();
             this.input.consumeDebugStep();
+            this.input.consumeDebugSkipToFinish();
             return;
         }
 
@@ -680,6 +681,7 @@ class Game {
             this.input.consumeDebugAIToggle();
             this.input.consumeDebugTimeScale();
             this.input.consumeDebugStep();
+            this.input.consumeDebugSkipToFinish();
             return;
         }
 
@@ -707,6 +709,16 @@ class Game {
                 this._debugTimeScaleIndex = (this._debugTimeScaleIndex + 1) % this._debugTimeScales.length;
                 const scale = this._debugTimeScales[this._debugTimeScaleIndex];
                 this.gameLoop.setTimeScale(scale);
+            }
+        }
+        if (this.input.consumeDebugSkipToFinish()) {
+            if (this.raceManager.state === 'racing') {
+                const skipped = this.raceManager.debugSkipToPreFinish(this.player);
+                if (skipped) {
+                    this.aiController.debugSkipToPreFinish();
+                    this.player.model.group.position.copy(this.player.position);
+                    this.player._updateModelOrientation();
+                }
             }
         }
         if (this.input.consumeDebugStep()) {
@@ -892,7 +904,9 @@ class Game {
         const timeScaleLabel = this._debugStepPaused
             ? 'PAUSED (F9 STEP)'
             : `${this.gameLoop.timeScale}x`;
-        this.hud.setDebugPanel(true, [
+
+        const isPostRace = raceState === 'finish_celebration' || raceState === 'finished';
+        const lines = [
             'DEBUG INSPECTOR',
             `FOCUS ${focusLabel}`,
             `WIREFRAME ${this._debugWireframe ? 'ON' : 'OFF'}`,
@@ -902,10 +916,31 @@ class Game {
             `PLAYER ${playerSpeed}KMH T ${playerTrack}`,
             aiLine,
             `CAM ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}`,
-            'F1 EXIT  F2 FOCUS  F3 WIRE  F4 RESET  F6 AI',
-            'F8 TIMESCALE  F9 PAUSE/STEP',
-            'LMB YAW/PITCH  WASD/ARROWS PAN  Q/E UP-DOWN  WHEEL ZOOM',
-        ]);
+        ];
+
+        // ── ゴール後巡航モニター ──
+        if (isPostRace && hasAI) {
+            const autoDriveKmh = this.player.autoDrive
+                ? (this.player.autoDriveSpeed * 3.6).toFixed(0)
+                : '--';
+            lines.push('');
+            lines.push(`--- POST-FINISH CRUISE ---`);
+            lines.push(`PLAYER AUTO ${autoDriveKmh}KMH  ACTUAL ${playerSpeed}KMH`);
+            const diags = this.aiController.getCruiseDiagnostics();
+            for (const d of diags) {
+                const status = d.completed ? 'FIN' : `L${d.lap}`;
+                lines.push(
+                    `AI#${d.id} ${d.speedKmh}/${d.cruiseKmh}KMH `
+                    + `LANE ${d.lane}>${d.neutralLane} `
+                    + `T ${d.progressT} [${status}]`
+                );
+            }
+        }
+
+        lines.push('F1 EXIT  F2 FOCUS  F3 WIRE  F4 RESET  F5 SKIP>FIN  F6 AI');
+        lines.push('F8 TIMESCALE  F9 PAUSE/STEP');
+        lines.push('LMB YAW/PITCH  WASD/ARROWS PAN  Q/E UP-DOWN  WHEEL ZOOM');
+        this.hud.setDebugPanel(true, lines);
     }
 
     _buildRaceCourseConfig(baseCourse, difficulty = 'NORMAL', courseLength = 2500, maxSpeedMs = 77.8, mode = 'arcade') {
@@ -1116,6 +1151,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     function launchGame(options) {
         destroyGame();
         currentGame = new Game({ ...options, debugUnlocked: ui.isDebugUnlocked() }, audio);
+        window.__game = currentGame;
         ui.setLastRaceContext(options.courseId, options.difficulty);
         ui.showGame();
         ui.setPauseAvailable(true);

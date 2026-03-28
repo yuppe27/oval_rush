@@ -173,6 +173,63 @@ export class RaceManager {
     }
 
     /**
+     * デバッグ用: プレイヤーを最終ラップのゴール直前にスキップする。
+     * チェックポイントをすべて通過済みにし、残りわずかでゴールラインを
+     * 通過すれば finish_celebration に遷移する状態を作る。
+     * racing 状態でのみ有効。
+     */
+    debugSkipToPreFinish(player) {
+        if (this.state !== 'racing') return false;
+
+        // 最終ラップに設定
+        this.currentLap = this.totalLaps;
+
+        // チェックポイントをすべて通過済みに
+        this.checkpoint.checkpointsPassed.fill(true);
+        this.checkpoint.ignoreNextStartCrossing = false;
+
+        // プレイヤーをスタートライン手前に配置
+        // スタートラインの少し手前（トラック全長の5%手前）に移動
+        const N = this.courseBuilder.sampledPoints.length;
+        const targetIdx = (this.courseBuilder.startLineIndex - Math.floor(N * 0.05) + N) % N;
+        const sp = this.courseBuilder.sampledPoints[targetIdx];
+
+        player.position.copy(sp.position);
+        player.position.addScaledVector(sp.up, 0.05);
+        player.nearestIndex = targetIdx;
+        player.trackT = sp.t;
+        player.onTrack = true;
+        player.surfaceUp.copy(sp.up);
+        player.surfaceRight.copy(sp.right);
+
+        // 向きをトラック接線方向に合わせる
+        const angle = Math.atan2(sp.forward.x, sp.forward.z);
+        player.rotation = angle;
+
+        // 速度をmaxSpeedの70%に設定（自然なゴール速度）
+        player.speed = player.maxSpeed * 0.70;
+
+        // ドリフト状態をリセット
+        player.isDrifting = false;
+        player.driftAngle = 0;
+        player.driftNoseYaw = 0;
+        player.driftTimer = 0;
+        player.isBoosting = false;
+        player.boostTimer = 0;
+        player.isSpinning = false;
+
+        // チェックポイントの前回位置を更新（false crossing回避）
+        this.checkpoint.prevIndex = targetIdx;
+
+        // タイマーに余裕を持たせる
+        if (this.timerEnabled) {
+            this.timer.extendTime(30);
+        }
+
+        return true;
+    }
+
+    /**
      * Call every physics frame.
      * player must have .nearestIndex (updated by PlayerVehicle._updateSurfaceFriction)
      * and .controlsEnabled flag.
