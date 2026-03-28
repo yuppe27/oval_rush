@@ -47,6 +47,9 @@ class Game {
         this._debugShowAI = false;
         this._debugSceneState = null;
         this._debugPreviousCameraMode = 'chase';
+        this._debugTimeScales = [1, 0.5, 0.25, 0.1];
+        this._debugTimeScaleIndex = 0;
+        this._debugStepPaused = false;
         this._baseFogColor = new THREE.Color();
         this._targetFogColor = new THREE.Color();
         this._mountainFogWhiteoutColor = new THREE.Color(0xf5f8fb);
@@ -661,6 +664,8 @@ class Game {
             this.input.consumeDebugWireframe();
             this.input.consumeDebugReset();
             this.input.consumeDebugAIToggle();
+            this.input.consumeDebugTimeScale();
+            this.input.consumeDebugStep();
             return;
         }
 
@@ -673,6 +678,8 @@ class Game {
             this.input.consumeDebugWireframe();
             this.input.consumeDebugReset();
             this.input.consumeDebugAIToggle();
+            this.input.consumeDebugTimeScale();
+            this.input.consumeDebugStep();
             return;
         }
 
@@ -691,6 +698,26 @@ class Game {
         if (this.input.consumeDebugAIToggle()) {
             this._debugShowAI = !this._debugShowAI;
             this._refreshDebugAIVisibility();
+        }
+        if (this.input.consumeDebugTimeScale()) {
+            if (this._debugStepPaused) {
+                this._debugStepPaused = false;
+                this.gameLoop.setDebugPaused(false);
+            } else {
+                this._debugTimeScaleIndex = (this._debugTimeScaleIndex + 1) % this._debugTimeScales.length;
+                const scale = this._debugTimeScales[this._debugTimeScaleIndex];
+                this.gameLoop.setTimeScale(scale);
+            }
+        }
+        if (this.input.consumeDebugStep()) {
+            if (!this._debugStepPaused) {
+                this._debugStepPaused = true;
+                this._debugTimeScaleIndex = 0;
+                this.gameLoop.setTimeScale(1);
+                this.gameLoop.setDebugPaused(true);
+            } else {
+                this.gameLoop.debugStep();
+            }
         }
     }
 
@@ -713,6 +740,10 @@ class Game {
         this._debugWireframe = false;
         this._applyDebugWireframe();
         this._applyDebugSceneState(false);
+        this._debugTimeScaleIndex = 0;
+        this._debugStepPaused = false;
+        this.gameLoop.setDebugPaused(false);
+        this.gameLoop.setTimeScale(1);
         this.cameraController.setDebugActive(false);
         this.cameraController.snapToMode(this.player, this._debugPreviousCameraMode || 'chase');
         this.hud.setDebugPanel(false);
@@ -858,16 +889,21 @@ class Game {
         const aiLine = nearestAI
             ? `AI#${nearestAI.id} ${ (nearestAI.speed * 3.6).toFixed(0)}KMH LANE ${nearestAI.laneOffset.toFixed(2)} T ${nearestAI.progressT.toFixed(3)}`
             : `AI ${hasAI ? 'UNAVAILABLE' : 'DISABLED'}`;
+        const timeScaleLabel = this._debugStepPaused
+            ? 'PAUSED (F9 STEP)'
+            : `${this.gameLoop.timeScale}x`;
         this.hud.setDebugPanel(true, [
             'DEBUG INSPECTOR',
             `FOCUS ${focusLabel}`,
             `WIREFRAME ${this._debugWireframe ? 'ON' : 'OFF'}`,
             `AI ${aiVisible ? 'VISIBLE' : 'HIDDEN'}`,
+            `TIME ${timeScaleLabel}`,
             `RACE ${raceState}  POS ${this.raceManager.playerPosition}/${this.raceManager.totalRacers}`,
             `PLAYER ${playerSpeed}KMH T ${playerTrack}`,
             aiLine,
             `CAM ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}`,
-            'F1 EXIT  F2 FOCUS  F3 WIREFRAME  F4 RESET  F6 AI',
+            'F1 EXIT  F2 FOCUS  F3 WIRE  F4 RESET  F6 AI',
+            'F8 TIMESCALE  F9 PAUSE/STEP',
             'LMB YAW/PITCH  WASD/ARROWS PAN  Q/E UP-DOWN  WHEEL ZOOM',
         ]);
     }
