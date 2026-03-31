@@ -1444,23 +1444,37 @@ export class PlayerVehicle {
         const dist = this.speed * dt;
         const samplesPerMeter = N / this.courseBuilder.courseLength;
         this._autoDriveIdx = (this._autoDriveIdx + dist * samplesPerMeter + N) % N;
-        const newIdx = Math.round(this._autoDriveIdx) % N;
+        const rawIdx = (this._autoDriveIdx + N) % N;
+        const i0 = Math.floor(rawIdx) % N;
+        const i1 = (i0 + 1) % N;
+        const sampleAlpha = rawIdx - Math.floor(rawIdx);
+        const sp0 = this.courseBuilder.sampledPoints[i0];
+        const sp1 = this.courseBuilder.sampledPoints[i1];
+        const interpPos = sp0.position.clone().lerp(sp1.position, sampleAlpha);
+        const interpUp = sp0.up.clone().lerp(sp1.up, sampleAlpha).normalize();
+        const interpRight = sp0.right.clone().lerp(sp1.right, sampleAlpha).normalize();
+        const newIdx = Math.round(rawIdx) % N;
 
         // Look ahead for smooth heading
         const lookAhead = Math.max(3, Math.floor(N * 0.012));
-        const aheadIdx = (newIdx + lookAhead) % N;
-        const sp = this.courseBuilder.sampledPoints[newIdx];
-        const aheadSp = this.courseBuilder.sampledPoints[aheadIdx];
+        const aheadRaw = (rawIdx + lookAhead) % N;
+        const aheadI0 = Math.floor(aheadRaw) % N;
+        const aheadI1 = (aheadI0 + 1) % N;
+        const aheadAlpha = aheadRaw - Math.floor(aheadRaw);
+        const aheadPos = this.courseBuilder.sampledPoints[aheadI0].position
+            .clone()
+            .lerp(this.courseBuilder.sampledPoints[aheadI1].position, aheadAlpha);
 
-        // Position: snap to spline center
+        // Position: follow the interpolated spline position to keep
+        // track progress continuous for nearby AI post-finish logic.
         const lerpRate = 1 - Math.exp(-8.0 * dt);
         this.position.lerp(
-            sp.position.clone().addScaledVector(sp.up, ROAD_SURFACE_OFFSET),
+            interpPos.clone().addScaledVector(interpUp, ROAD_SURFACE_OFFSET),
             lerpRate
         );
 
         // Heading: face toward the look-ahead point
-        const targetAngle = Math.atan2(aheadSp.position.x - sp.position.x, aheadSp.position.z - sp.position.z);
+        const targetAngle = Math.atan2(aheadPos.x - interpPos.x, aheadPos.z - interpPos.z);
         let angleDiff = targetAngle - this.rotation;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -1471,10 +1485,10 @@ export class PlayerVehicle {
 
         // Update tracking state
         this.nearestIndex = newIdx;
-        this.trackT = sp.t;
+        this.trackT = rawIdx / N;
         this.onTrack = true;
-        this.surfaceUp.copy(sp.up);
-        this.surfaceRight.copy(sp.right);
+        this.surfaceUp.copy(interpUp);
+        this.surfaceRight.copy(interpRight);
 
         // Decay drift visuals
         this.driftAngle *= Math.pow(0.1, dt);

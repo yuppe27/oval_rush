@@ -931,7 +931,7 @@ class Game {
                 const status = d.completed ? 'FIN' : `L${d.lap}`;
                 lines.push(
                     `AI#${d.id} ${d.speedKmh}/${d.cruiseKmh}KMH `
-                    + `LANE ${d.lane}>${d.neutralLane} `
+                    + `S ${d.cruiseScale} LANE ${d.lane}>${d.neutralLane} `
                     + `T ${d.progressT} [${status}]`
                 );
             }

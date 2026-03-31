@@ -449,6 +449,7 @@ export class AIController {
             ai.finishPosition = 0;
             ai.startLinePassed = false;
             ai.postFinishCruiseSpeed = null;
+            ai.cruiseSpeedScale = 1.0;
         }
         this._nextFinishPos = 1;
         this._raceElapsed = 0;
@@ -589,13 +590,17 @@ export class AIController {
             } else if (postFinishCruiseSpeed !== null) {
                 // drift state already decayed in the block above (line 708-712);
                 // do NOT reset driftAngle to 0 here — let the exponential decay run
+                // Post-finish speed is controlled from a single target so
+                // cruise settling and avoidance do not fight each other.
+                const cruiseScale = THREE.MathUtils.clamp(ai.cruiseSpeedScale ?? 1.0, 0.82, 1.10);
+                const desiredCruiseSpeed = postFinishCruiseSpeed * cruiseScale;
                 // Smooth dt-dependent damping — bypass gear/brake/accel system
                 const cruiseLerp = 1 - Math.exp(-2.5 * dt);
-                ai.speed = THREE.MathUtils.lerp(ai.speed, postFinishCruiseSpeed, cruiseLerp);
-                ai.targetSpeed = ai.speed;
-                ai.lastWaypointSpeed = postFinishCruiseSpeed;
+                ai.speed = THREE.MathUtils.lerp(ai.speed, desiredCruiseSpeed, cruiseLerp);
+                ai.targetSpeed = desiredCruiseSpeed;
+                ai.lastWaypointSpeed = desiredCruiseSpeed;
                 ai.lastRubberBand = 1.0;
-                ai.lastDesiredSpeed = ai.speed;
+                ai.lastDesiredSpeed = desiredCruiseSpeed;
                 // Compute neutral cruise lane target; actual lane interpolation
                 // is handled solely in _applyCruiseAvoidance to avoid
                 // competing lerps that cause micro-jitter.
@@ -732,6 +737,7 @@ export class AIController {
 
     _enterPostFinishCruise(ai, globalCruiseSpeed = null) {
         ai.postFinishCruiseSpeed = this._computePostFinishCruiseSpeed(ai, globalCruiseSpeed);
+        ai.cruiseSpeedScale = 1.0;
     }
 
     _getPostFinishCruiseSpeed(ai, globalCruiseSpeed = null) {
@@ -1336,10 +1342,16 @@ export class AIController {
         const playerAvoidLaneShift = 2.2; // プレイヤー回避時の車線移動量
         const playerSlowFactor = 0.92;    // プレイヤー接近時の減速率
 
-        // プレイヤーのトラック位置
-        const playerT = player ? (player.trackT ?? 0) : 0;
-        // プレイヤーの車線オフセット推定（中央基準: 0）
-        const playerLaneEstimate = 0;
+        // プレイヤーのトラック位置と車線オフセットを連続的に推定する。
+        // オートドライブ中の離散サンプル値をそのまま使うと、
+        // 近接AIの回避条件がフレームごとに反転して揺れやすい。
+        const playerT = player ? wrap01(player.trackT ?? 0) : 0;
+        let playerLaneEstimate = 0;
+        if (player?.position) {
+            const playerFrame = this._sampleTrackFrame(playerT);
+            const toPlayer = new THREE.Vector3().subVectors(player.position, playerFrame.position);
+            playerLaneEstimate = toPlayer.dot(playerFrame.right);
+        }
 
         for (const ai of this.vehicles) {
             if (ai.crashTimer > 0) continue;
@@ -1347,11 +1359,14 @@ export class AIController {
             const sampleIdx = Math.floor(wrap01(ai.progressT) * N) % N;
             const sp = this.courseBuilder.sampledPoints[sampleIdx];
             const laneLimit = Math.max(0.8, (sp.width * 0.5) - this.tuning.lane.wallMargin);
+            const baseCruiseSpeed = Math.max(1e-3, ai.postFinishCruiseSpeed ?? ai.speed ?? 0);
 
             // ── 車線制御: 単一ターゲット方式 ──
             // 優先度: プレイヤー回避 > AI分離 > ニュートラル復帰
             let laneTarget = ai._cruiseNeutralLane ?? 0;
             let laneLerpRate = 1.5;  // ニュートラル復帰レート
+            let desiredSpeedScale = 1.0;
+            let speedScaleLerpRate = 2.2;
 
             // ── AI同士の間隔制御 ──
             let nearestAheadAI = null;
@@ -1374,8 +1389,10 @@ export class AIController {
                 const relSpeed = ai.speed - nearestAheadAI.speed;
                 if (relSpeed > 0) {
                     const closeN = 1 - THREE.MathUtils.clamp(nearestAheadDelta / cruiseSpacingT, 0, 1);
-                    const brakeLerp = 1 - Math.exp(-4.8 * closeN * dt);
-                    ai.speed = THREE.MathUtils.lerp(ai.speed, nearestAheadAI.speed, brakeLerp);
+                    const aheadScale = THREE.MathUtils.clamp(nearestAheadAI.speed / baseCruiseSpeed, 0.82, 1.0);
+                    const matchedScale = THREE.MathUtils.lerp(1.0, aheadScale, closeN);
+                    desiredSpeedScale = Math.min(desiredSpeedScale, matchedScale);
+                    speedScaleLerpRate = Math.max(speedScaleLerpRate, THREE.MathUtils.lerp(2.8, 5.0, closeN));
                 }
                 // 車線分離: 近い側と逆方向へ
                 const laneDelta = ai.laneOffset - nearestAheadAI.laneOffset;
@@ -1406,18 +1423,29 @@ export class AIController {
 
                         // AIがプレイヤーのすぐ前にいる場合は少し加速して離れる
                         if (aheadOfPlayer < behindPlayer && aheadOfPlayer < 0.006) {
-                            const boostLerp = 1 - Math.exp(-1.5 * dt);
-                            const boostedSpeed = (ai.postFinishCruiseSpeed || ai.speed) * 1.08;
-                            ai.speed = THREE.MathUtils.lerp(ai.speed, boostedSpeed, boostLerp);
+                            desiredSpeedScale = Math.max(desiredSpeedScale, 1.06);
+                            speedScaleLerpRate = Math.max(speedScaleLerpRate, 1.6);
                         }
                         // AIがプレイヤーのすぐ後ろにいて追いつきそうなら減速
                         else if (behindPlayer < aheadOfPlayer && behindPlayer < 0.008 && ai.speed > player.speed) {
-                            const slowLerp = 1 - Math.exp(-3.0 * dt);
-                            ai.speed = THREE.MathUtils.lerp(ai.speed, player.speed * playerSlowFactor, slowLerp);
+                            const playerScale = THREE.MathUtils.clamp(
+                                (player.speed * playerSlowFactor) / baseCruiseSpeed,
+                                0.82,
+                                1.0
+                            );
+                            desiredSpeedScale = Math.min(desiredSpeedScale, playerScale);
+                            speedScaleLerpRate = Math.max(speedScaleLerpRate, 3.6);
                         }
                     }
                 }
             }
+
+            const speedScaleLerp = 1 - Math.exp(-speedScaleLerpRate * dt);
+            ai.cruiseSpeedScale = THREE.MathUtils.lerp(
+                ai.cruiseSpeedScale ?? 1.0,
+                THREE.MathUtils.clamp(desiredSpeedScale, 0.82, 1.10),
+                speedScaleLerp
+            );
 
             // ── 車線: 単一lerp適用 ──
             const laneLerp = 1 - Math.exp(-laneLerpRate * dt);
@@ -1780,6 +1808,7 @@ export class AIController {
             ai.finishPosition = 0;
             ai.startLinePassed = true;
             ai.postFinishCruiseSpeed = 0;
+            ai.cruiseSpeedScale = 1.0;
             ai.isCrashed = false;
             ai.crashTimer = 0;
             ai.crashYaw = 0;
@@ -1810,6 +1839,9 @@ export class AIController {
                 ? (ai.postFinishCruiseSpeed * 3.6).toFixed(0)
                 : '--';
             const speedKmh = (ai.speed * 3.6).toFixed(0);
+            const cruiseScale = Number.isFinite(ai.cruiseSpeedScale)
+                ? ai.cruiseSpeedScale.toFixed(3)
+                : '--';
             const lane = ai.laneOffset.toFixed(1);
             const neutralLane = ai._cruiseNeutralLane != null
                 ? ai._cruiseNeutralLane.toFixed(1)
@@ -1818,6 +1850,7 @@ export class AIController {
                 id: ai.id,
                 speedKmh,
                 cruiseKmh,
+                cruiseScale,
                 lane,
                 neutralLane,
                 completed: ai.completed,
