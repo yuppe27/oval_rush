@@ -13,7 +13,9 @@ export class SlipstreamSystem {
 
         this.scene = scene;
         this.airLine = null;
-        this._linePos = new Float32Array(18); // 3 segments
+        this._streamOffsets = [-1.15, -0.58, 0, 0.58, 1.15];
+        this._linePos = new Float32Array(this._streamOffsets.length * 6);
+        this._time = 0;
         if (this.scene) {
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.BufferAttribute(this._linePos, 3));
@@ -22,6 +24,7 @@ export class SlipstreamSystem {
                 transparent: true,
                 opacity: 0,
                 depthWrite: false,
+                blending: THREE.AdditiveBlending,
             });
             this.airLine = new THREE.LineSegments(geo, mat);
             this.airLine.frustumCulled = false;
@@ -30,6 +33,7 @@ export class SlipstreamSystem {
     }
 
     update(dt, player, aiController, raceState) {
+        this._time += dt;
         if (raceState !== 'racing' || !aiController?.vehicles?.length) {
             this.bestVehicle = null;
             this._approachStrength(0, dt);
@@ -92,7 +96,13 @@ export class SlipstreamSystem {
         }
 
         this.airLine.visible = true;
-        this.airLine.material.opacity = 0.1 + this.currentStrength * 0.3;
+        const playerSpeedN = THREE.MathUtils.clamp(player.getSpeedKmh() / 260, 0.2, 1.0);
+        this.airLine.material.opacity = 0.12 + this.currentStrength * 0.38 + playerSpeedN * 0.05;
+        this.airLine.material.color.setRGB(
+            0.42 + this.currentStrength * 0.22,
+            0.82 + this.currentStrength * 0.12,
+            1.0
+        );
 
         const ai = this.bestVehicle;
         const aiForward = ai.forward?.clone().setY(0).normalize() ?? new THREE.Vector3(
@@ -106,11 +116,19 @@ export class SlipstreamSystem {
         const toPlayer = player.position.clone().sub(rear).setY(0);
         const lineDir = toPlayer.lengthSq() > 1e-6 ? toPlayer.normalize() : aiForward.clone().multiplyScalar(-1);
         const len = THREE.MathUtils.clamp(rear.distanceTo(player.position), this.minDistance, this.maxDistance);
-        const offsets = [-0.75, 0, 0.75];
+        const swayAmp = 0.14 + this.currentStrength * 0.22;
 
-        for (let i = 0; i < offsets.length; i++) {
-            const a = rear.clone().addScaledVector(aiRight, offsets[i]);
-            const b = a.clone().addScaledVector(lineDir, len * 0.9);
+        for (let i = 0; i < this._streamOffsets.length; i++) {
+            const offset = this._streamOffsets[i];
+            const phase = this._time * (7 + this.currentStrength * 4) + i * 0.9;
+            const sway = Math.sin(phase) * swayAmp * (1 - Math.abs(offset) * 0.28);
+            const yLift = Math.cos(phase * 0.85) * 0.05;
+            const a = rear.clone()
+                .addScaledVector(aiRight, offset + sway)
+                .add(new THREE.Vector3(0, yLift, 0));
+            const b = a.clone()
+                .addScaledVector(lineDir, len * (0.84 + this.currentStrength * 0.12))
+                .addScaledVector(aiRight, sway * 1.4);
             const idx = i * 6;
             this._linePos[idx] = a.x;
             this._linePos[idx + 1] = a.y;
@@ -125,6 +143,7 @@ export class SlipstreamSystem {
     reset(player = null) {
         this.currentStrength = 0;
         this.bestVehicle = null;
+        this._time = 0;
         if (player) player.setSlipstreamFactor(0);
         if (this.airLine) {
             this.airLine.visible = false;

@@ -25,6 +25,12 @@ export class CameraController {
         this._initialized = false;
         this._prevRaceState = null;
         this._smoothCruiseRot = null; // smoothed heading for post-finish cruise cam
+        this._cameraTime = 0;
+        this._prevBoosting = false;
+        this._prevAirborne = false;
+        this._prevAirborneTimer = 0;
+        this._boostKick = 0;
+        this._landingShock = 0;
         this.mode = 'chase'; // chase | bumper | overhead
         this.modeOrder = ['chase', 'bumper', 'overhead'];
 
@@ -169,6 +175,7 @@ export class CameraController {
     }
 
     update(dt, vehicle, race = null) {
+        this._cameraTime += dt;
         const raceState = race?.state ?? null;
         const introToCountdown = this._prevRaceState === 'grid_intro' && raceState === 'countdown';
         if (introToCountdown) {
@@ -199,6 +206,7 @@ export class CameraController {
 
         const vPos = vehicle.position;
         const vRot = vehicle.rotation;
+        this._updateDynamicState(vehicle, dt);
 
         // Drift camera offset: shift camera to the outside of the drift
         // driftAngle is negated in PlayerVehicle (screen-correct), so negate here too
@@ -219,7 +227,6 @@ export class CameraController {
         this._initialized = true;
 
         this.camera.position.copy(this._smoothPosition);
-        this.camera.lookAt(this._smoothLookAt);
 
         const speedFov = THREE.MathUtils.clamp(
             (Math.abs(vehicle.speed) / Math.max(1e-3, vehicle.maxSpeed)) * CAMERA_MAX_FOV_BOOST,
@@ -237,13 +244,7 @@ export class CameraController {
         );
 
         this.camera.updateProjectionMatrix();
-
-        // Camera shake during boost
-        if (vehicle.isBoosting) {
-            const shakeIntensity = 0.05;
-            this.camera.position.x += (Math.random() - 0.5) * shakeIntensity;
-            this.camera.position.y += (Math.random() - 0.5) * shakeIntensity;
-        }
+        this._applyDynamicCameraMotion(vehicle);
 
         this._prevRaceState = raceState;
     }
@@ -488,12 +489,40 @@ export class CameraController {
         return { targetPos, targetLookAt };
     }
 
+    _updateDynamicState(vehicle, dt) {
+        if (vehicle.isBoosting && !this._prevBoosting) {
+            this._boostKick = 1;
+        }
+        this._prevBoosting = vehicle.isBoosting;
+
+        const airborne = vehicle.airborneTimer > 0.001;
+        if (this._prevAirborne && !airborne) {
+            const airN = THREE.MathUtils.clamp((this._prevAirborneTimer || 0.12) / 0.42, 0.25, 1);
+            const speedN = THREE.MathUtils.clamp(vehicle.getSpeedKmh() / 230, 0.2, 1);
+            this._landingShock = Math.max(this._landingShock, airN * speedN);
+        }
+        this._prevAirborne = airborne;
+        this._prevAirborneTimer = vehicle.airborneTimer || 0;
+
+        this._boostKick = Math.max(0, this._boostKick - dt * 4.2);
+        this._landingShock = Math.max(0, this._landingShock - dt * 5.2);
+    }
+
+    _applyDynamicCameraMotion(vehicle) {
+        this.camera.lookAt(this._smoothLookAt);
+    }
+
     _snapToChase(vehicle) {
         const { targetPos, targetLookAt } = this._getChaseTargets(vehicle, 0);
         this._smoothPosition.copy(targetPos);
         this._smoothLookAt.copy(targetLookAt);
         this._lateralOffset = 0;
         this._initialized = true;
+        this._boostKick = 0;
+        this._landingShock = 0;
+        this._prevBoosting = vehicle.isBoosting;
+        this._prevAirborne = vehicle.airborneTimer > 0.001;
+        this._prevAirborneTimer = vehicle.airborneTimer || 0;
         this.camera.position.copy(targetPos);
         this.camera.lookAt(targetLookAt);
         this.camera.fov = CAMERA_BASE_FOV;

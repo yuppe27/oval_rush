@@ -852,6 +852,8 @@ body {
     z-index: 9;
     pointer-events: none;
     opacity: 0;
+    --boost-drift-x: 0px;
+    --boost-drift-rot: 0deg;
 }
 
 #boost-lines {
@@ -867,7 +869,7 @@ body {
         );
     filter: blur(0.7px);
     mix-blend-mode: screen;
-    transform: perspective(900px) rotateX(64deg) scale(1.15);
+    transform: perspective(900px) rotateX(64deg) translateX(var(--boost-drift-x)) rotateZ(var(--boost-drift-rot)) scale(1.15);
     transform-origin: center bottom;
 }
 
@@ -878,6 +880,26 @@ body {
     background:
         radial-gradient(circle at 50% 62%, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 38%),
         radial-gradient(circle at 50% 50%, rgba(55, 180, 255, 0.18) 0%, rgba(0, 0, 0, 0) 68%);
+    mix-blend-mode: screen;
+}
+
+#boost-vignette {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background:
+        radial-gradient(circle at 50% 56%, rgba(255, 255, 255, 0.0) 32%, rgba(110, 208, 255, 0.08) 58%, rgba(0, 0, 0, 0.0) 72%),
+        radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.0) 48%, rgba(8, 18, 34, 0.24) 100%);
+    mix-blend-mode: screen;
+}
+
+#boost-flash {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background:
+        radial-gradient(circle at 50% 54%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.14) 18%, rgba(255, 255, 255, 0.0) 44%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.0) 38%);
     mix-blend-mode: screen;
 }
 

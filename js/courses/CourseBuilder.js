@@ -24,8 +24,16 @@ export class CourseBuilder {
         this._jumbotronTexture = null;
         this._curveSignTextureCache = new Map();
         this._airship = null;
+        this._stadiumPulse = null;
         this._mountainCloudBreak = null;
+        this._mountainCloudSea = null;
+        this._mountainWaterfall = null;
         this._seasidePlane = null;
+        this._seasideTunnelLamps = null;
+        this._roadTextureCache = new Map();
+        this._roadMarkTextureCache = new Map();
+        this._wallTextureCache = new Map();
+        this._railCapTextureCache = new Map();
         /** Meshes that can occlude the chase camera (tunnel ceilings, overburden, etc.) */
         this.cameraOccluders = [];
     }
@@ -35,8 +43,12 @@ export class CourseBuilder {
         this.cameraOccluders = [];
         this.courseData = courseData;
         this._airship = null;
+        this._stadiumPulse = null;
         this._mountainCloudBreak = null;
+        this._mountainCloudSea = null;
+        this._mountainWaterfall = null;
         this._seasidePlane = null;
+        this._seasideTunnelLamps = null;
         const points = courseData.controlPoints.map(
             cp => new THREE.Vector3(cp.x, cp.y, cp.z)
         );
@@ -166,6 +178,7 @@ export class CourseBuilder {
     // ─── Road surface ──────────────────────────────────────────────────────────
 
     _buildRoadSurface() {
+        const profile = this._getCourseVisualProfile();
         const N = this.sampledPoints.length;
         const vertices = [];
         const indices  = [];
@@ -205,8 +218,9 @@ export class CourseBuilder {
         geo.computeVertexNormals();
 
         const mat = new THREE.MeshStandardMaterial({
-            color: 0x2d2d2d,
-            roughness: 0.85,
+            color: profile.roadTint,
+            map: this._getRoadTexture(profile),
+            roughness: profile.roadRoughness,
             metalness: 0.05,
             side: THREE.DoubleSide,
         });
@@ -214,50 +228,83 @@ export class CourseBuilder {
         road.receiveShadow = true;
         this.group.add(road);
 
-        this._buildCenterLine();
-        this._buildEdgeLines();
+        this._buildCenterLine(profile);
+        this._buildEdgeLines(profile);
     }
 
-    _buildCenterLine() {
-        const pts = this.sampledPoints.map(sp =>
-            new THREE.Vector3(sp.position.x, sp.position.y + 0.06, sp.position.z)
+    _buildCenterLine(profile) {
+        const mat = new THREE.MeshStandardMaterial({
+            color: profile.centerMarkTint,
+            map: this._getRoadMarkTexture(profile, 'center'),
+            roughness: 0.88,
+            metalness: 0.02,
+            transparent: true,
+            alphaTest: 0.42,
+            side: THREE.DoubleSide,
+        });
+        const mesh = this._buildRoadStrip(
+            () => -0.18,
+            () => 0.18,
+            mat,
+            0.065
         );
-        pts.push(pts[0].clone()); // close loop
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 4, gapSize: 3 });
-        const line = new THREE.Line(geo, mat);
-        line.computeLineDistances();
-        this.group.add(line);
+        this.group.add(mesh);
     }
 
-    _buildEdgeLines() {
+    _buildEdgeLines(profile) {
         for (const side of [-1, 1]) {
-            const pts = this.sampledPoints.map(sp => {
-                const p = sp.position.clone().addScaledVector(sp.right, side * (sp.width / 2 - 0.4));
-                p.y += 0.06;
-                return p;
+            const shoulderMat = new THREE.MeshStandardMaterial({
+                color: profile.edgeStripTint,
+                map: this._getRoadMarkTexture(profile, `shoulder-${side > 0 ? 'r' : 'l'}`),
+                roughness: 0.86,
+                metalness: 0.02,
+                side: THREE.DoubleSide,
             });
-            pts.push(pts[0].clone());
-            const geo = new THREE.BufferGeometry().setFromPoints(pts);
-            const mat = new THREE.LineBasicMaterial({ color: 0xffffff });
-            this.group.add(new THREE.Line(geo, mat));
+            const shoulder = this._buildRoadStrip(
+                (sp) => side * (sp.width / 2 - 0.72),
+                (sp) => side * (sp.width / 2 - 0.14),
+                shoulderMat,
+                0.062
+            );
+            this.group.add(shoulder);
+
+            const lineMat = new THREE.MeshStandardMaterial({
+                color: profile.edgeLineTint,
+                roughness: 0.82,
+                metalness: 0.0,
+                emissive: new THREE.Color(profile.edgeLineEmissive),
+                emissiveIntensity: 0.14,
+                side: THREE.DoubleSide,
+            });
+            const line = this._buildRoadStrip(
+                (sp) => side * (sp.width / 2 - 0.26),
+                (sp) => side * (sp.width / 2 - 0.14),
+                lineMat,
+                0.068
+            );
+            this.group.add(line);
         }
     }
 
     // ─── Walls / guardrails ────────────────────────────────────────────────────
 
     _buildWalls() {
+        const profile = this._getCourseVisualProfile();
         const wallHeight = 1.0;
         const wallMat = new THREE.MeshStandardMaterial({
-            color: 0xbbbbbb,
+            color: profile.wallTint,
+            map: this._getWallTexture(profile),
             roughness: 0.6,
             metalness: 0.2,
+            side: THREE.DoubleSide,
         });
 
         for (const side of [-1, 1]) {
             const vertices = [];
             const indices  = [];
+            const uvs = [];
             const N = this.sampledPoints.length;
+            let accLen = 0;
 
             for (let i = 0; i <= N; i++) {
                 const sp    = this.sampledPoints[i % N];
@@ -267,6 +314,11 @@ export class CourseBuilder {
 
                 vertices.push(edge.x, baseY,              edge.z);  // bottom
                 vertices.push(edge.x, baseY + wallHeight, edge.z);  // top
+                if (i > 0) {
+                    accLen += sp.position.distanceTo(this.sampledPoints[(i - 1) % N].position);
+                }
+                const v = accLen / Math.max(1, wallHeight * 6);
+                uvs.push(0, v, 1, v);
 
                 if (i < N) {
                     const bl = i * 2, br = bl + 1;
@@ -281,6 +333,7 @@ export class CourseBuilder {
 
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
             geo.setIndex(indices);
             geo.computeVertexNormals();
 
@@ -291,7 +344,12 @@ export class CourseBuilder {
         }
 
         // Red / white striped rail caps on top of walls
-        const capMat = new THREE.MeshStandardMaterial({ color: 0xdd3333, roughness: 0.5, metalness: 0.3 });
+        const capMat = new THREE.MeshStandardMaterial({
+            color: profile.railCapTint,
+            map: this._getRailCapTexture(profile),
+            roughness: 0.48,
+            metalness: 0.3,
+        });
         for (const side of [-1, 1]) {
             const pts = this.sampledPoints.map(sp => {
                 const p = sp.position.clone().addScaledVector(sp.right, side * sp.width / 2);
@@ -303,6 +361,344 @@ export class CourseBuilder {
             const tubeGeo = new THREE.TubeGeometry(curve, pts.length - 1, 0.12, 4, false);
             this.group.add(new THREE.Mesh(tubeGeo, capMat));
         }
+    }
+
+    _buildRoadStrip(getLateralA, getLateralB, material, yOffset = 0.065) {
+        const N = this.sampledPoints.length;
+        const vertices = [];
+        const indices = [];
+        const uvs = [];
+        let accLen = 0;
+
+        for (let i = 0; i <= N; i++) {
+            const sp = this.sampledPoints[i % N];
+            const latA = getLateralA(sp, i);
+            const latB = getLateralB(sp, i);
+            const a = sp.position.clone().addScaledVector(sp.right, latA);
+            const b = sp.position.clone().addScaledVector(sp.right, latB);
+            a.y += yOffset;
+            b.y += yOffset;
+            vertices.push(a.x, a.y, a.z, b.x, b.y, b.z);
+
+            if (i > 0) {
+                accLen += sp.position.distanceTo(this.sampledPoints[(i - 1) % N].position);
+            }
+            const v = accLen / Math.max(1, Math.abs(latB - latA) * 6);
+            uvs.push(0, v, 1, v);
+
+            if (i < N) {
+                const bl = i * 2;
+                const br = bl + 1;
+                const tl = (i + 1) * 2;
+                const tr = tl + 1;
+                indices.push(bl, tl, br, br, tl, tr);
+            }
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.receiveShadow = true;
+        return mesh;
+    }
+
+    _getCourseVisualProfile() {
+        const courseId = this.courseData?.id || 'thunder';
+        if (courseId === 'seaside') {
+            return {
+                id: courseId,
+                roadTint: 0x3a3b3f,
+                roadRoughness: 0.84,
+                roadBase: '#3f4044',
+                roadDark: '#2b2d30',
+                roadLight: '#5a5c61',
+                roadPatch: '#6d6f73',
+                roadDust: '#8b8478',
+                centerMarkTint: 0xf4f0e6,
+                edgeStripTint: 0xd7d8d2,
+                edgeStripPrimary: '#e8e2d8',
+                edgeStripSecondary: '#b8a58c',
+                edgeLineTint: 0xf7f4eb,
+                edgeLineEmissive: 0x887b5f,
+                wallTint: 0xd0d3d9,
+                wallBase: '#d7d9de',
+                wallShade: '#8e96a2',
+                wallAccent: '#bba273',
+                railCapTint: 0xe7d7c4,
+                railCapPrimary: '#de533f',
+                railCapSecondary: '#f0ede7',
+            };
+        }
+        if (courseId === 'mountain') {
+            return {
+                id: courseId,
+                roadTint: 0x2d2f32,
+                roadRoughness: 0.9,
+                roadBase: '#34363a',
+                roadDark: '#222427',
+                roadLight: '#4f5257',
+                roadPatch: '#66696f',
+                roadDust: '#80776b',
+                centerMarkTint: 0xf0ede6,
+                edgeStripTint: 0xd9c29d,
+                edgeStripPrimary: '#dfd6c8',
+                edgeStripSecondary: '#b57945',
+                edgeLineTint: 0xf7f3ea,
+                edgeLineEmissive: 0x6d5e41,
+                wallTint: 0xb8bcc3,
+                wallBase: '#bfc4cb',
+                wallShade: '#767d88',
+                wallAccent: '#69594b',
+                railCapTint: 0xe8d4bf,
+                railCapPrimary: '#d86b34',
+                railCapSecondary: '#efe7de',
+            };
+        }
+        return {
+            id: courseId,
+            roadTint: 0x313236,
+            roadRoughness: 0.86,
+            roadBase: '#393b40',
+            roadDark: '#23252a',
+            roadLight: '#56595f',
+            roadPatch: '#70737a',
+            roadDust: '#6f726d',
+            centerMarkTint: 0xf7f4ee,
+            edgeStripTint: 0xe2d9d0,
+            edgeStripPrimary: '#f4f1ea',
+            edgeStripSecondary: '#bf2f26',
+            edgeLineTint: 0xfcfbf5,
+            edgeLineEmissive: 0x7a7365,
+            wallTint: 0xc7cbd2,
+            wallBase: '#d2d6dd',
+            wallShade: '#7f8792',
+            wallAccent: '#b43428',
+            railCapTint: 0xebddd0,
+            railCapPrimary: '#d93b2c',
+            railCapSecondary: '#f4efe8',
+        };
+    }
+
+    _getRoadTexture(profile) {
+        const key = profile.id;
+        if (this._roadTextureCache.has(key)) {
+            return this._roadTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = profile.roadBase;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < canvas.height; y += 4) {
+            const tone = 36 + ((y * 17) % 24);
+            ctx.fillStyle = `rgba(${tone}, ${tone + 1}, ${tone + 3}, 0.055)`;
+            ctx.fillRect(0, y, canvas.width, 2);
+        }
+
+        for (let i = 0; i < 1500; i++) {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            const alpha = 0.018 + Math.random() * 0.026;
+            const size = 1 + Math.random() * 2.2;
+            ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+        for (let i = 0; i < 22; i++) {
+            const x = 34 + Math.random() * (canvas.width - 68);
+            const y = Math.random() * canvas.height;
+            const w = 12 + Math.random() * 26;
+            const h = 160 + Math.random() * 280;
+            ctx.fillRect(x, y, w, h);
+        }
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        for (let i = 0; i < 10; i++) {
+            const x = 22 + Math.random() * (canvas.width - 44);
+            const y = Math.random() * canvas.height;
+            const w = 18 + Math.random() * 36;
+            const h = 80 + Math.random() * 180;
+            ctx.fillRect(x, y, w, h);
+        }
+
+        for (let i = 0; i < 18; i++) {
+            const y = Math.random() * canvas.height;
+            const h = 22 + Math.random() * 40;
+            const grad = ctx.createLinearGradient(0, y, 0, y + h);
+            grad.addColorStop(0, 'rgba(255,255,255,0.0)');
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.045)');
+            grad.addColorStop(1, 'rgba(255,255,255,0.0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(10, y, canvas.width - 20, h);
+        }
+
+        ctx.fillStyle = profile.roadPatch;
+        ctx.globalAlpha = 0.18;
+        for (let i = 0; i < 14; i++) {
+            const x = 14 + Math.random() * (canvas.width - 100);
+            const y = Math.random() * canvas.height;
+            const w = 44 + Math.random() * 54;
+            const h = 32 + Math.random() * 120;
+            ctx.fillRect(x, y, w, h);
+        }
+        ctx.globalAlpha = 1;
+
+        const edgeGrad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        edgeGrad.addColorStop(0, 'rgba(255,255,255,0.08)');
+        edgeGrad.addColorStop(0.1, 'rgba(255,255,255,0.0)');
+        edgeGrad.addColorStop(0.9, 'rgba(255,255,255,0.0)');
+        edgeGrad.addColorStop(1, 'rgba(255,255,255,0.08)');
+        ctx.fillStyle = edgeGrad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        this._roadTextureCache.set(key, texture);
+        return texture;
+    }
+
+    _getRoadMarkTexture(profile, kind) {
+        const key = `${profile.id}:${kind}`;
+        if (this._roadMarkTextureCache.has(key)) {
+            return this._roadMarkTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        if (kind === 'center') {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            for (let y = 0; y < canvas.height; y += 46) {
+                ctx.fillRect(10, y + 4, canvas.width - 20, 24);
+            }
+            ctx.fillStyle = 'rgba(80, 68, 45, 0.18)';
+            for (let y = 0; y < canvas.height; y += 46) {
+                ctx.fillRect(14, y + 6, canvas.width - 28, 4);
+            }
+        } else {
+            ctx.fillStyle = profile.edgeStripPrimary;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (let y = 0; y < canvas.height; y += 32) {
+                ctx.fillStyle = ((Math.floor(y / 32) % 2) === 0)
+                    ? profile.edgeStripSecondary
+                    : profile.edgeStripPrimary;
+                ctx.fillRect(0, y, canvas.width, 16);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+                ctx.fillRect(0, y + 16, canvas.width, 4);
+            }
+            const grime = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            grime.addColorStop(0, 'rgba(0,0,0,0.14)');
+            grime.addColorStop(0.3, 'rgba(0,0,0,0.02)');
+            grime.addColorStop(0.7, 'rgba(255,255,255,0.04)');
+            grime.addColorStop(1, 'rgba(0,0,0,0.12)');
+            ctx.fillStyle = grime;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        this._roadMarkTextureCache.set(key, texture);
+        return texture;
+    }
+
+    _getWallTexture(profile) {
+        const key = profile.id;
+        if (this._wallTextureCache.has(key)) {
+            return this._wallTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = profile.wallBase;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < canvas.height; y += 32) {
+            ctx.fillStyle = 'rgba(255,255,255,0.07)';
+            ctx.fillRect(0, y, canvas.width, 2);
+        }
+        for (let y = 0; y < canvas.height; y += 64) {
+            ctx.fillStyle = profile.wallShade;
+            ctx.globalAlpha = 0.18;
+            ctx.fillRect(0, y + 10, canvas.width, 10);
+        }
+        ctx.globalAlpha = 1;
+
+        for (let x = 14; x < canvas.width; x += 20) {
+            ctx.fillStyle = 'rgba(255,255,255,0.11)';
+            ctx.fillRect(x, 0, 2, canvas.height);
+            ctx.fillStyle = 'rgba(0,0,0,0.08)';
+            ctx.fillRect(x + 2, 0, 2, canvas.height);
+        }
+
+        ctx.fillStyle = profile.wallAccent;
+        ctx.globalAlpha = 0.08;
+        for (let i = 0; i < 14; i++) {
+            const y = Math.random() * canvas.height;
+            ctx.fillRect(0, y, canvas.width, 6 + Math.random() * 12);
+        }
+        ctx.globalAlpha = 1;
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        this._wallTextureCache.set(key, texture);
+        return texture;
+    }
+
+    _getRailCapTexture(profile) {
+        const key = profile.id;
+        if (this._railCapTextureCache.has(key)) {
+            return this._railCapTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = profile.railCapSecondary;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        for (let y = 0; y < canvas.height; y += 32) {
+            ctx.fillStyle = ((Math.floor(y / 32) % 2) === 0)
+                ? profile.railCapPrimary
+                : profile.railCapSecondary;
+            ctx.fillRect(0, y, canvas.width, 16);
+        }
+        const shade = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        shade.addColorStop(0, 'rgba(0,0,0,0.18)');
+        shade.addColorStop(0.28, 'rgba(255,255,255,0.10)');
+        shade.addColorStop(0.72, 'rgba(255,255,255,0.02)');
+        shade.addColorStop(1, 'rgba(0,0,0,0.2)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        this._railCapTextureCache.set(key, texture);
+        return texture;
     }
 
     // ─── Start line ────────────────────────────────────────────────────────────
@@ -680,6 +1076,28 @@ export class CourseBuilder {
             this.group.add(pillar);
         }
 
+        const beaconMat = new THREE.MeshStandardMaterial({
+            color: 0xffd57a,
+            emissive: 0xffb347,
+            emissiveIntensity: 0.75,
+            roughness: 0.36,
+            metalness: 0.14,
+        });
+        const beacons = [];
+        for (const dx of [-18.2, 18.2]) {
+            const beacon = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 1.8), beaconMat.clone());
+            beacon.position.set(cx + dx, screenY + 8.8, cz);
+            this.group.add(beacon);
+            beacons.push(beacon);
+        }
+
+        this._stadiumPulse = {
+            time: 0,
+            screenMaterial: screenMat,
+            spectatorMaterial: null,
+            beacons,
+        };
+
         this._buildStadiumStartLineRoof(cx, cz, standInnerR, standOuterR, standHeight, wallTopHeight);
         this._buildStadiumSpectators(cx, cz, standInnerR, standOuterR, standHeight);
         this._buildAirship(cx, cz, maxR);
@@ -775,8 +1193,53 @@ export class CourseBuilder {
 
     updateScenery(dt, raceState = 'idle', nearestIndex = null) {
         this.updateAirship(dt);
+        this._updateStadiumPulse(dt, raceState);
         this._updateSeasidePlane(dt, raceState);
+        this._updateSeasideTunnelLights(dt, raceState);
+        this._updateMountainWaterfall(dt, raceState);
+        this._updateMountainCloudSea(dt, raceState);
         this._updateMountainCloudBreak(dt, raceState, nearestIndex);
+    }
+
+    _updateStadiumPulse(dt, raceState) {
+        if (!this._stadiumPulse) return;
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._stadiumPulse;
+        state.time += dt;
+
+        const screenTarget = active
+            ? 0.82 + Math.max(0, Math.sin(state.time * 1.9)) * 0.22
+            : 0.72;
+        if (state.screenMaterial) {
+            state.screenMaterial.emissiveIntensity = THREE.MathUtils.lerp(
+                state.screenMaterial.emissiveIntensity,
+                screenTarget,
+                dt * 3
+            );
+        }
+
+        if (state.spectatorMaterial) {
+            const spectatorTarget = active
+                ? 0.06 + (0.04 + Math.sin(state.time * 5.4) * 0.02)
+                : 0.04;
+            state.spectatorMaterial.emissiveIntensity = THREE.MathUtils.lerp(
+                state.spectatorMaterial.emissiveIntensity,
+                spectatorTarget,
+                dt * 3.5
+            );
+        }
+
+        for (let i = 0; i < state.beacons.length; i++) {
+            const beacon = state.beacons[i];
+            const mat = beacon.material;
+            const pulse = active
+                ? 0.65 + Math.sin(state.time * 4.4 + i * 0.8) * 0.45
+                : 0.35;
+            mat.emissiveIntensity = THREE.MathUtils.clamp(pulse, 0.25, 1.2);
+        }
     }
 
     _updateSeasidePlane(dt, raceState) {
@@ -818,6 +1281,9 @@ export class CourseBuilder {
         state.group.position.copy(pos);
         state.group.quaternion.setFromUnitVectors(state.forwardAxis, forward);
         state.group.rotateX(bank);
+        for (let i = 0; i < state.propBlades.length; i++) {
+            state.propBlades[i].rotation.x += dt * (32 + i * 8);
+        }
 
         state.sampleTimer += dt;
         if (state.leftTrail.points.length === 0 || state.rightTrail.points.length === 0) {
@@ -834,6 +1300,25 @@ export class CourseBuilder {
 
         this._refreshContrail(state.leftTrail);
         this._refreshContrail(state.rightTrail);
+    }
+
+    _updateSeasideTunnelLights(dt, raceState) {
+        if (!this._seasideTunnelLamps?.lamps?.length) return;
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._seasideTunnelLamps;
+        state.time += dt;
+
+        for (let i = 0; i < state.lamps.length; i++) {
+            const lamp = state.lamps[i];
+            const mat = lamp.material;
+            const pulse = active
+                ? 0.54 + Math.sin(state.time * 6.4 + i * 0.45) * 0.22
+                : 0.4;
+            mat.emissiveIntensity = THREE.MathUtils.clamp(pulse, 0.28, 0.9);
+        }
     }
 
     _sampleSeasidePlanePosition(state, t) {
@@ -937,6 +1422,55 @@ export class CourseBuilder {
                 1.05
             );
             puff.mesh.material.opacity = puff.baseOpacity * opacityScale;
+        }
+    }
+
+    _updateMountainWaterfall(dt, raceState) {
+        if (!this._mountainWaterfall) return;
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._mountainWaterfall;
+        state.time += dt;
+        const phase = state.time * (active ? 1.8 : 0.8);
+        state.mesh.position.x = state.baseX + Math.sin(phase * 0.7) * 1.4;
+        state.mesh.position.y = state.baseY + Math.cos(phase) * 0.45;
+        state.mesh.position.z = state.baseZ + Math.sin(phase * 0.55) * 0.8;
+        state.material.opacity = THREE.MathUtils.clamp(
+            state.baseOpacity + Math.sin(phase * 1.25) * 0.08,
+            0.68,
+            0.92
+        );
+        state.material.emissiveIntensity = THREE.MathUtils.clamp(
+            state.baseEmissiveIntensity + Math.cos(phase * 1.1) * 0.05,
+            0.12,
+            0.26
+        );
+    }
+
+    _updateMountainCloudSea(dt, raceState) {
+        if (!this._mountainCloudSea?.meshes?.length) return;
+        const active = raceState === 'grid_intro'
+            || raceState === 'countdown'
+            || raceState === 'racing'
+            || raceState === 'finish_celebration';
+        const state = this._mountainCloudSea;
+        state.time += dt;
+        const speed = active ? 0.55 : 0.2;
+
+        for (let i = 0; i < state.meshes.length; i++) {
+            const entry = state.meshes[i];
+            const mesh = entry.mesh;
+            const phase = state.time * speed + i * 0.9;
+            mesh.position.x = entry.baseX + Math.sin(phase * 0.6) * (6 + i * 1.4);
+            mesh.position.z = entry.baseZ + Math.cos(phase * 0.5) * (5 + i * 1.2);
+            mesh.position.y = entry.baseY + Math.sin(phase * 0.9) * 0.9;
+            mesh.material.opacity = THREE.MathUtils.clamp(
+                entry.baseOpacity + Math.sin(phase * 1.15) * 0.06,
+                0.42,
+                0.68
+            );
         }
     }
 
@@ -1160,7 +1694,12 @@ export class CourseBuilder {
 
         const colors = [0xcc2222, 0x2244cc, 0xddcc00, 0x22aa44, 0xffffff, 0xee6600, 0x9933cc, 0x44aacc, 0xee3388, 0x33ccaa];
         const geo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
-        const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.95,
+            emissive: new THREE.Color(0x15181d),
+            emissiveIntensity: 0.08,
+        });
         let seed = 12345;
         const rand = () => {
             seed = (seed * 1664525 + 1013904223) & 0xffffffff;
@@ -1212,6 +1751,9 @@ export class CourseBuilder {
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         this.group.add(mesh);
+        if (this._stadiumPulse) {
+            this._stadiumPulse.spectatorMaterial = mat;
+        }
     }
 
     _buildStadiumGrassSections(cx, cz, standInnerR, standOuterR, standHeight, slopeAngle, grassSpans) {
@@ -1346,6 +1888,7 @@ export class CourseBuilder {
         propHub.position.set(5.78, -0.15, 0);
         planeGroup.add(propHub);
 
+        const propBlades = [];
         for (const rot of [0, Math.PI / 2]) {
             const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.2, 0.18), new THREE.MeshStandardMaterial({
                 color: 0x31363c,
@@ -1355,6 +1898,7 @@ export class CourseBuilder {
             blade.position.set(5.95, -0.15, 0);
             blade.rotation.x = rot;
             planeGroup.add(blade);
+            propBlades.push(blade);
         }
 
         planeGroup.scale.setScalar(1.45);
@@ -1412,6 +1956,7 @@ export class CourseBuilder {
             time: 24 * 0.18,
             active: false,
             forwardAxis: new THREE.Vector3(1, 0, 0),
+            propBlades,
         };
     }
 
@@ -2080,6 +2625,7 @@ export class CourseBuilder {
         const rockMat = new THREE.MeshStandardMaterial({ color: 0x756a5f, roughness: 0.98 });
         const grassMat = new THREE.MeshStandardMaterial({ color: 0x4d6f3c, roughness: 0.96 });
         const segmentStep = 1;
+        const tunnelLamps = [];
 
         if (indices.length) {
             const startSp = this.sampledPoints[indices[0]];
@@ -2185,12 +2731,18 @@ export class CourseBuilder {
                 this._addOccluder(canopy);
             }
 
-            const lamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.22, 1.1), lightMat);
+            const lamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.22, 1.1), lightMat.clone());
             lamp.position.copy(sp.position).addScaledVector(sp.up, shoulderRise - 0.2);
             lamp.quaternion.copy(archQuat);
             lamp.renderOrder = 1;
             this.group.add(lamp);
+            tunnelLamps.push(lamp);
         }
+
+        this._seasideTunnelLamps = {
+            time: 0,
+            lamps: tunnelLamps,
+        };
     }
 
     _buildTunnelPortal(sp, material) {
@@ -3227,6 +3779,16 @@ export class CourseBuilder {
         fall.position.set(-365, 56, 238);
         fall.rotation.y = Math.PI * 0.2;
         this.group.add(fall);
+        this._mountainWaterfall = {
+            mesh: fall,
+            material: waterMat,
+            baseX: fall.position.x,
+            baseY: fall.position.y,
+            baseZ: fall.position.z,
+            baseOpacity: waterMat.opacity,
+            baseEmissiveIntensity: waterMat.emissiveIntensity,
+            time: 0,
+        };
     }
 
     _buildMountainCloudSea() {
@@ -3248,6 +3810,7 @@ export class CourseBuilder {
         mainCloud.rotation.x = -Math.PI / 2;
         mainCloud.position.set(center.x, -26, center.z);
         this.group.add(mainCloud);
+        const cloudMeshes = [{ mesh: mainCloud, baseX: mainCloud.position.x, baseY: mainCloud.position.y, baseZ: mainCloud.position.z, baseOpacity: cloudMat.opacity }];
 
         // smaller accent clouds for layered depth
         const cloudPositions = [
@@ -3261,7 +3824,14 @@ export class CourseBuilder {
             cloud.position.set(x, -24, z);
             cloud.scale.set(1, h / w, 1);
             this.group.add(cloud);
+            cloudMeshes.push({ mesh: cloud, baseX: cloud.position.x, baseY: cloud.position.y, baseZ: cloud.position.z, baseOpacity: cloudMat.opacity });
         }
+
+        this._mountainCloudSea = {
+            time: 0,
+            meshes: cloudMeshes,
+            material: cloudMat,
+        };
     }
 
     _buildMountainCloudBreakthrough() {

@@ -179,6 +179,7 @@ export class PlayerVehicle {
         this.driftExitTractionTimer = 0;
         this.wallHitCount = 0;
         this.lastWallImpact = 0;
+        this.lastWallSide = 0; // -1: left wall, 1: right wall
         this.spinOutCount = 0;
         this.collisionImmunityTimer = 0;
 
@@ -1105,6 +1106,7 @@ export class PlayerVehicle {
         if (lateralAbs > halfW) {
             // Wall collision
             const penetration = lateralAbs - halfW;
+            this.lastWallSide = nearest.lateralOffset > 0 ? 1 : -1;
 
             // Push player back onto track
             const pushDir = nearest.lateralOffset > 0 ? -1 : 1;
@@ -1533,6 +1535,7 @@ export class PlayerVehicle {
         this.terrainSpeedFactor = 1.0;
         this.wallHitCount = 0;
         this.lastWallImpact = 0;
+        this.lastWallSide = 0;
         this.spinOutCount = 0;
         this.collisionImmunityTimer = 0;
         this.autoDrive = false;
