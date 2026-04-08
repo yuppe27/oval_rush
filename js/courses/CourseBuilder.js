@@ -31,6 +31,7 @@ export class CourseBuilder {
         this._seasidePlane = null;
         this._seasideTunnelLamps = null;
         this._roadTextureCache = new Map();
+        this._roadRoughnessTextureCache = new Map();
         this._roadMarkTextureCache = new Map();
         this._wallTextureCache = new Map();
         this._railCapTextureCache = new Map();
@@ -220,6 +221,7 @@ export class CourseBuilder {
         const mat = new THREE.MeshStandardMaterial({
             color: profile.roadTint,
             map: this._getRoadTexture(profile),
+            roughnessMap: this._getRoadRoughnessTexture(profile),
             roughness: profile.roadRoughness,
             metalness: 0.05,
             side: THREE.DoubleSide,
@@ -493,6 +495,7 @@ export class CourseBuilder {
         canvas.width = 256;
         canvas.height = 1024;
         const ctx = canvas.getContext('2d');
+        const rand = this._createSeededRandom(`road:${key}`);
         ctx.fillStyle = profile.roadBase;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -502,36 +505,67 @@ export class CourseBuilder {
             ctx.fillRect(0, y, canvas.width, 2);
         }
 
-        for (let i = 0; i < 1500; i++) {
-            const x = Math.random() * canvas.width;
-            const y = Math.random() * canvas.height;
-            const alpha = 0.018 + Math.random() * 0.026;
-            const size = 1 + Math.random() * 2.2;
+        for (let i = 0; i < 2200; i++) {
+            const x = rand() * canvas.width;
+            const y = rand() * canvas.height;
+            const alpha = 0.014 + rand() * 0.024;
+            const size = 0.8 + rand() * 1.8;
             ctx.fillStyle = `rgba(255,255,255,${alpha})`;
             ctx.fillRect(x, y, size, size);
         }
 
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        for (let i = 0; i < 1500; i++) {
+            const x = rand() * canvas.width;
+            const y = rand() * canvas.height;
+            const alpha = 0.012 + rand() * 0.02;
+            const size = 0.7 + rand() * 1.5;
+            ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        for (const center of [canvas.width * 0.32, canvas.width * 0.68]) {
+            const halfWidth = 18 + rand() * 8;
+            const wear = ctx.createLinearGradient(center - halfWidth, 0, center + halfWidth, 0);
+            wear.addColorStop(0, 'rgba(0,0,0,0.0)');
+            wear.addColorStop(0.2, 'rgba(22,22,24,0.07)');
+            wear.addColorStop(0.5, 'rgba(12,12,14,0.18)');
+            wear.addColorStop(0.8, 'rgba(22,22,24,0.07)');
+            wear.addColorStop(1, 'rgba(0,0,0,0.0)');
+            ctx.fillStyle = wear;
+            ctx.fillRect(center - halfWidth, 0, halfWidth * 2, canvas.height);
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+        for (let i = 0; i < 14; i++) {
+            const x = 30 + rand() * (canvas.width - 60);
+            const y = rand() * canvas.height;
+            const w = 2 + rand() * 4;
+            const h = 180 + rand() * 340;
+            ctx.fillRect(x, y, w, h);
+        }
+
         ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
-        for (let i = 0; i < 22; i++) {
-            const x = 34 + Math.random() * (canvas.width - 68);
-            const y = Math.random() * canvas.height;
-            const w = 12 + Math.random() * 26;
-            const h = 160 + Math.random() * 280;
+        for (let i = 0; i < 20; i++) {
+            const x = 34 + rand() * (canvas.width - 68);
+            const y = rand() * canvas.height;
+            const w = 12 + rand() * 24;
+            const h = 150 + rand() * 260;
             ctx.fillRect(x, y, w, h);
         }
 
         ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        for (let i = 0; i < 10; i++) {
-            const x = 22 + Math.random() * (canvas.width - 44);
-            const y = Math.random() * canvas.height;
-            const w = 18 + Math.random() * 36;
-            const h = 80 + Math.random() * 180;
+        for (let i = 0; i < 12; i++) {
+            const x = 22 + rand() * (canvas.width - 44);
+            const y = rand() * canvas.height;
+            const w = 18 + rand() * 34;
+            const h = 80 + rand() * 180;
             ctx.fillRect(x, y, w, h);
         }
 
         for (let i = 0; i < 18; i++) {
-            const y = Math.random() * canvas.height;
-            const h = 22 + Math.random() * 40;
+            const y = rand() * canvas.height;
+            const h = 22 + rand() * 40;
             const grad = ctx.createLinearGradient(0, y, 0, y + h);
             grad.addColorStop(0, 'rgba(255,255,255,0.0)');
             grad.addColorStop(0.5, 'rgba(255,255,255,0.045)');
@@ -543,13 +577,23 @@ export class CourseBuilder {
         ctx.fillStyle = profile.roadPatch;
         ctx.globalAlpha = 0.18;
         for (let i = 0; i < 14; i++) {
-            const x = 14 + Math.random() * (canvas.width - 100);
-            const y = Math.random() * canvas.height;
-            const w = 44 + Math.random() * 54;
-            const h = 32 + Math.random() * 120;
+            const x = 14 + rand() * (canvas.width - 100);
+            const y = rand() * canvas.height;
+            const w = 44 + rand() * 54;
+            const h = 32 + rand() * 120;
             ctx.fillRect(x, y, w, h);
         }
         ctx.globalAlpha = 1;
+
+        const shoulderDust = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        shoulderDust.addColorStop(0, this._hexToRgba(profile.roadDust, 0.34));
+        shoulderDust.addColorStop(0.08, this._hexToRgba(profile.roadDust, 0.12));
+        shoulderDust.addColorStop(0.16, 'rgba(0,0,0,0)');
+        shoulderDust.addColorStop(0.84, 'rgba(0,0,0,0)');
+        shoulderDust.addColorStop(0.92, this._hexToRgba(profile.roadDust, 0.12));
+        shoulderDust.addColorStop(1, this._hexToRgba(profile.roadDust, 0.34));
+        ctx.fillStyle = shoulderDust;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const edgeGrad = ctx.createLinearGradient(0, 0, canvas.width, 0);
         edgeGrad.addColorStop(0, 'rgba(255,255,255,0.08)');
@@ -566,6 +610,105 @@ export class CourseBuilder {
         texture.anisotropy = 4;
         this._roadTextureCache.set(key, texture);
         return texture;
+    }
+
+    _getRoadRoughnessTexture(profile) {
+        const key = profile.id;
+        if (this._roadRoughnessTextureCache.has(key)) {
+            return this._roadRoughnessTextureCache.get(key);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        const rand = this._createSeededRandom(`roughness:${key}`);
+
+        ctx.fillStyle = 'rgb(218, 218, 218)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < canvas.height; y += 6) {
+            const tone = 204 + Math.floor(rand() * 18);
+            ctx.fillStyle = `rgba(${tone}, ${tone}, ${tone}, 0.18)`;
+            ctx.fillRect(0, y, canvas.width, 3);
+        }
+
+        for (let i = 0; i < 1700; i++) {
+            const x = rand() * canvas.width;
+            const y = rand() * canvas.height;
+            const tone = 180 + Math.floor(rand() * 48);
+            const alpha = 0.12 + rand() * 0.18;
+            const size = 0.8 + rand() * 1.8;
+            ctx.fillStyle = `rgba(${tone}, ${tone}, ${tone}, ${alpha})`;
+            ctx.fillRect(x, y, size, size);
+        }
+
+        for (const center of [canvas.width * 0.32, canvas.width * 0.68]) {
+            const halfWidth = 18 + rand() * 8;
+            const wear = ctx.createLinearGradient(center - halfWidth, 0, center + halfWidth, 0);
+            wear.addColorStop(0, 'rgba(255,255,255,0)');
+            wear.addColorStop(0.22, 'rgba(135,135,135,0.12)');
+            wear.addColorStop(0.5, 'rgba(116,116,116,0.34)');
+            wear.addColorStop(0.78, 'rgba(135,135,135,0.12)');
+            wear.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = wear;
+            ctx.fillRect(center - halfWidth, 0, halfWidth * 2, canvas.height);
+        }
+
+        ctx.fillStyle = 'rgba(235,235,235,0.22)';
+        for (let i = 0; i < 16; i++) {
+            const x = 6 + rand() * 14;
+            const w = 8 + rand() * 6;
+            ctx.fillRect(x, 0, w, canvas.height);
+            const mirrorX = canvas.width - x - w;
+            ctx.fillRect(mirrorX, 0, w, canvas.height);
+        }
+
+        ctx.fillStyle = 'rgba(120,120,120,0.16)';
+        for (let i = 0; i < 12; i++) {
+            const x = 30 + rand() * (canvas.width - 60);
+            const y = rand() * canvas.height;
+            const w = 2 + rand() * 4;
+            const h = 180 + rand() * 340;
+            ctx.fillRect(x, y, w, h);
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        if ('colorSpace' in texture && 'NoColorSpace' in THREE) {
+            texture.colorSpace = THREE.NoColorSpace;
+        }
+        this._roadRoughnessTextureCache.set(key, texture);
+        return texture;
+    }
+
+    _createSeededRandom(seed) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < seed.length; i++) {
+            h ^= seed.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return () => {
+            h += 0x6D2B79F5;
+            let t = Math.imul(h ^ (h >>> 15), 1 | h);
+            t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    _hexToRgba(hex, alpha) {
+        const value = hex.replace('#', '');
+        const normalized = value.length === 3
+            ? value.split('').map(ch => ch + ch).join('')
+            : value;
+        const int = Number.parseInt(normalized, 16);
+        const r = (int >> 16) & 255;
+        const g = (int >> 8) & 255;
+        const b = int & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     _getRoadMarkTexture(profile, kind) {
