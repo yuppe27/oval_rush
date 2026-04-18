@@ -10,12 +10,69 @@ const _glbCache = globalThis.__vehicleModelGLBCache;
 
 const CAR_GLB_PATH = 'assets/models/car.glb';
 
+/**
+ * Three-state taillight: 'off' (idle), 'coast' (engine braking, dim red),
+ * 'brake' (active brake, bright red). The emissive values are chosen to exceed
+ * the UnrealBloomPass threshold (0.85) so the rear lights bloom naturally.
+ */
+const TAILLIGHT_STATES = {
+    off:   { intensity: 1.2,  color: 0x880808 },
+    coast: { intensity: 5.0,  color: 0xd82020 },
+    brake: { intensity: 14.0, color: 0xff3232 },
+};
+
+const BODY_MATERIAL_NAMES = new Set(['BodyBlue.001', 'RoofDark', 'RedAccent', 'GoldAccent']);
+
+/**
+ * Promote a MeshStandardMaterial to MeshPhysicalMaterial and enable clearcoat
+ * for car-paint-like reflections. We transfer the well-known Standard fields
+ * by hand because MeshPhysicalMaterial.copy() expects Vector2 fields
+ * (clearcoatNormalScale, sheenColor, etc.) that a plain Standard material
+ * does not carry, and would throw on undefined.
+ * @param {THREE.Material} src
+ * @returns {THREE.MeshPhysicalMaterial}
+ */
+function promoteToClearcoat(src) {
+    if (src.isMeshPhysicalMaterial) {
+        src.clearcoat = src.clearcoat || 0.6;
+        src.clearcoatRoughness = src.clearcoatRoughness ?? 0.25;
+        src.envMapIntensity = src.envMapIntensity ?? 0.9;
+        return src;
+    }
+    const phys = new THREE.MeshPhysicalMaterial({
+        color: src.color ? src.color.clone() : undefined,
+        map: src.map ?? null,
+        normalMap: src.normalMap ?? null,
+        normalScale: src.normalScale ? src.normalScale.clone() : undefined,
+        roughness: src.roughness ?? 0.5,
+        roughnessMap: src.roughnessMap ?? null,
+        metalness: src.metalness ?? 0.0,
+        metalnessMap: src.metalnessMap ?? null,
+        aoMap: src.aoMap ?? null,
+        aoMapIntensity: src.aoMapIntensity ?? 1.0,
+        emissive: src.emissive ? src.emissive.clone() : undefined,
+        emissiveMap: src.emissiveMap ?? null,
+        emissiveIntensity: src.emissiveIntensity ?? 1.0,
+        envMapIntensity: src.envMapIntensity ?? 1.0,
+        transparent: Boolean(src.transparent),
+        opacity: src.opacity ?? 1.0,
+        side: src.side ?? THREE.FrontSide,
+        flatShading: Boolean(src.flatShading),
+    });
+    phys.name = src.name;
+    phys.clearcoat = 0.6;
+    phys.clearcoatRoughness = 0.25;
+    phys.envMapIntensity = 0.9;
+    src.dispose();
+    return phys;
+}
+
 export class VehicleModel {
     constructor(options = {}) {
         this.group = new THREE.Group();
         this.wheels = [];
         this.taillightMat = null;
-        this._braking = false;
+        this._taillightState = 'off';
         this.vehicleId = options.vehicleId || 'falcon';
         this.primaryColor = options.color ?? 0xcc0000;
         this.modelScale = options.modelScale ?? 1;
@@ -101,15 +158,21 @@ export class VehicleModel {
             const matName = child.material.name;
 
             if (matName === 'BodyBlue.001') {
+                child.material = promoteToClearcoat(child.material);
                 child.material.color.set(bodyColor);
             } else if (matName === 'RoofDark') {
+                child.material = promoteToClearcoat(child.material);
                 child.material.color.set(roofColor);
+            } else if (BODY_MATERIAL_NAMES.has(matName)) {
+                child.material = promoteToClearcoat(child.material);
             } else if (matName === 'Taillight') {
                 // Share a single taillight material across L/R for unified brake control
                 if (!this.taillightMat) {
                     this.taillightMat = child.material;
-                    this.taillightMat.emissive = new THREE.Color(0xff2222);
-                    this.taillightMat.emissiveIntensity = 2.0;
+                    const off = TAILLIGHT_STATES.off;
+                    this.taillightMat.emissive = new THREE.Color(off.color);
+                    this.taillightMat.emissiveIntensity = off.intensity;
+                    this.taillightMat.color.set(off.color);
                 }
                 child.material = this.taillightMat;
             }
@@ -153,22 +216,24 @@ export class VehicleModel {
             if (!child.isMesh) return;
             const matName = child.material.name;
             if (matName === 'BodyBlue.001') {
-                child.material = child.material.clone();
+                child.material = promoteToClearcoat(child.material.clone());
                 child.material.color.set(bodyColor);
             } else if (matName === 'RoofDark') {
-                child.material = child.material.clone();
+                child.material = promoteToClearcoat(child.material.clone());
                 child.material.color.set(roofColor);
             } else if (matName === 'RedAccent' && accent1) {
-                child.material = child.material.clone();
+                child.material = promoteToClearcoat(child.material.clone());
                 child.material.color.set(accent1);
             } else if (matName === 'GoldAccent' && accent2) {
-                child.material = child.material.clone();
+                child.material = promoteToClearcoat(child.material.clone());
                 child.material.color.set(accent2);
             } else if (matName === 'Taillight') {
                 if (!sharedTaillightMat) {
                     sharedTaillightMat = child.material.clone();
-                    sharedTaillightMat.emissive = new THREE.Color(0xff2222);
-                    sharedTaillightMat.emissiveIntensity = 2.0;
+                    const off = TAILLIGHT_STATES.off;
+                    sharedTaillightMat.emissive = new THREE.Color(off.color);
+                    sharedTaillightMat.emissiveIntensity = off.intensity;
+                    sharedTaillightMat.color.set(off.color);
                 }
                 child.material = sharedTaillightMat;
             }
@@ -176,12 +241,20 @@ export class VehicleModel {
     }
 
     setBraking(active) {
-        if (this._braking === active) return;
-        this._braking = active;
-        if (this.taillightMat) {
-            this.taillightMat.emissiveIntensity = active ? 8.0 : 2.0;
-            this.taillightMat.color.set(active ? 0xff4444 : 0xda2727);
-        }
+        this.setTaillightState(active ? 'brake' : 'off');
+    }
+
+    /**
+     * @param {'off'|'coast'|'brake'} state
+     */
+    setTaillightState(state) {
+        const preset = TAILLIGHT_STATES[state] ?? TAILLIGHT_STATES.off;
+        if (this._taillightState === state) return;
+        this._taillightState = state;
+        if (!this.taillightMat) return;
+        this.taillightMat.emissiveIntensity = preset.intensity;
+        this.taillightMat.emissive.setHex(preset.color);
+        this.taillightMat.color.setHex(preset.color);
     }
 
     updateWheelRotation(speed) {

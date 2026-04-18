@@ -33,6 +33,7 @@ export class CourseBuilder {
         this._roadTextureCache = new Map();
         this._roadRoughnessTextureCache = new Map();
         this._roadMarkTextureCache = new Map();
+        this._roadNormalTextureCache = new Map();
         this._wallTextureCache = new Map();
         this._railCapTextureCache = new Map();
         /** Meshes that can occlude the chase camera (tunnel ceilings, overburden, etc.) */
@@ -222,6 +223,8 @@ export class CourseBuilder {
             color: profile.roadTint,
             map: this._getRoadTexture(profile),
             roughnessMap: this._getRoadRoughnessTexture(profile),
+            normalMap: this._getRoadNormalTexture(profile),
+            normalScale: new THREE.Vector2(0.35, 0.35),
             roughness: profile.roadRoughness,
             metalness: 0.05,
             side: THREE.DoubleSide,
@@ -682,6 +685,106 @@ export class CourseBuilder {
             texture.colorSpace = THREE.NoColorSpace;
         }
         this._roadRoughnessTextureCache.set(key, texture);
+        return texture;
+    }
+
+    /**
+     * Procedural tangent-space normal map for the road. Writes a seeded height
+     * field (grain + occasional patches + longitudinal tire ruts) to a canvas
+     * and converts it to a normal map via Sobel. Kept in NoColorSpace so the
+     * GPU samples raw RGB values.
+     */
+    _getRoadNormalTexture(profile) {
+        const key = profile.id;
+        if (this._roadNormalTextureCache.has(key)) {
+            return this._roadNormalTextureCache.get(key);
+        }
+
+        const W = 256;
+        const H = 1024;
+        const rand = this._createSeededRandom(`normal:${key}`);
+        const height = new Float32Array(W * H);
+
+        // Base grain: high-frequency speckle simulating aggregate.
+        for (let i = 0; i < height.length; i++) {
+            height[i] = rand() * 0.35;
+        }
+
+        // Larger patches for bigger aggregate / wear spots.
+        for (let p = 0; p < 220; p++) {
+            const cx = Math.floor(rand() * W);
+            const cy = Math.floor(rand() * H);
+            const r = 2 + Math.floor(rand() * 4);
+            const amp = 0.25 + rand() * 0.35;
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const x = (cx + dx + W) % W;
+                    const y = cy + dy;
+                    if (y < 0 || y >= H) continue;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d > r) continue;
+                    const falloff = 1 - d / r;
+                    height[y * W + x] += amp * falloff;
+                }
+            }
+        }
+
+        // Longitudinal tire ruts: shallow grooves roughly where wheels run.
+        for (const center of [W * 0.32, W * 0.68]) {
+            const half = 14;
+            for (let y = 0; y < H; y++) {
+                for (let dx = -half; dx <= half; dx++) {
+                    const x = Math.floor(center + dx);
+                    if (x < 0 || x >= W) continue;
+                    const t = dx / half;
+                    const depth = -0.18 * (1 - t * t);
+                    height[y * W + x] += depth;
+                }
+            }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        const img = ctx.createImageData(W, H);
+        const strength = 2.0;
+
+        const sample = (x, y) => {
+            const xx = (x + W) % W;
+            const yy = Math.min(H - 1, Math.max(0, y));
+            return height[yy * W + xx];
+        };
+
+        for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+                const dx = sample(x + 1, y) - sample(x - 1, y);
+                const dy = sample(x, y + 1) - sample(x, y - 1);
+                let nx = -dx * strength;
+                let ny = -dy * strength;
+                let nz = 1.0;
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+                nx /= len;
+                ny /= len;
+                nz /= len;
+                const idx = (y * W + x) * 4;
+                img.data[idx]     = Math.round((nx * 0.5 + 0.5) * 255);
+                img.data[idx + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+                img.data[idx + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+                img.data[idx + 3] = 255;
+            }
+        }
+        ctx.putImageData(img, 0, 0);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        texture.anisotropy = 4;
+        if ('colorSpace' in texture && 'NoColorSpace' in THREE) {
+            texture.colorSpace = THREE.NoColorSpace;
+        }
+        this._roadNormalTextureCache.set(key, texture);
         return texture;
     }
 
