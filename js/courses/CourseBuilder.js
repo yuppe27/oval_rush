@@ -1954,6 +1954,7 @@ export class CourseBuilder {
         this._buildSeasideTown();
         this._buildSeasideCliffs();
         this._buildSeasideTunnel();
+        this._buildTunnelMountain();
         this._buildLighthouse();
         this._buildOffshoreShips();
         this._buildSeasidePlane();
@@ -2526,7 +2527,7 @@ export class CourseBuilder {
         // Overburden top ≈ 17.35 — slight overlap is fine since slab is external
         const roofFloor = 17;
         const waterLevelY = -3.5; // seaside water level
-        const baseY = waterLevelY - 1.8; // extend below water so visible skirt meets water line
+        const baseY = waterLevelY - 22; // extend far below water so skirt bottom is hidden by water plane
         const mountainSides = [-1, 1];
         const slabRight = new THREE.Vector3().crossVectors(
             new THREE.Vector3(0, 1, 0),
@@ -2655,7 +2656,7 @@ export class CourseBuilder {
             const topOff = slabW * 0.5 + 2;
             const midOff = topOff + outerBias;
             const lowOff = midOff + 10 + pf * 6;
-            const baseOff = lowOff + 14 + pf * 8;
+            const baseOff = lowOff + 50 + pf * 30;
             const shellHalf = (frameSp?.width ?? 0) * 0.5 + 16;
 
             const top = pos.clone().addScaledVector(slabRight, side * topOff);
@@ -2689,7 +2690,7 @@ export class CourseBuilder {
                 bottom,
                 frameSp,
                 side,
-                Math.max(shellHalf + 40, baseOff - 12)
+                Math.max(shellHalf + 90, baseOff - 20)
             );
 
             verts.push(top.x, top.y, top.z);
@@ -2712,7 +2713,7 @@ export class CourseBuilder {
                     if (side > 0) {
                         idx.push(bl, br, tl, tl, br, tr);
                     } else {
-                        idx.push(bl, br, tl, tl, br, tr);
+                        idx.push(bl, tl, br, tl, tr, br);
                     }
                 }
             }
@@ -2728,7 +2729,7 @@ export class CourseBuilder {
             vertexColors: true,
             roughness: 0.98,
             metalness: 0.01,
-            side: THREE.FrontSide,
+            side: THREE.DoubleSide,
         }));
         mesh.castShadow = true;
         mesh.receiveShadow = true;
