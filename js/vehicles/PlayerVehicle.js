@@ -360,7 +360,14 @@ export class PlayerVehicle {
         this.model.group.position.copy(this.position);
         this._updateModelOrientation();
         this.model.updateWheelRotation(this.speed);
-        this.model.setBraking(throttle < 0 && this.speed > 0.5);
+        this.model.setTaillightState(this._resolveTaillightState(throttle));
+    }
+
+    _resolveTaillightState(throttle) {
+        if (this.speed <= 0.5) return 'off';
+        if (throttle < 0) return 'brake';
+        if (throttle === 0) return 'coast';
+        return 'off';
     }
 
     _updateTransmission(input, throttle) {
