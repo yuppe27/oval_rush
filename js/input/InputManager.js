@@ -5,7 +5,7 @@ const OPTIONS_KEY = OPTIONS_STORAGE_KEY;
 const GAME_KEYS = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
     'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight',
-    'KeyZ', 'KeyX', 'KeyC', 'Space',
+    'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'Space',
 ]);
 
 const DEBUG_KEYS = new Set(['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F8', 'F9']);
@@ -16,6 +16,7 @@ export class InputManager {
         this.keys = {};
         this.gamepad = null;
         this._cameraSwitchRequested = false;
+        this._comfortFrameToggleRequested = false;
         this._shiftUpRequested = false;
         this._shiftDownRequested = false;
         this._pauseRequested = false;
@@ -45,6 +46,7 @@ export class InputManager {
             this.keys[e.code] = true;
             if (!wasDown) {
                 if (e.code === 'KeyC') this._cameraSwitchRequested = true;
+                if (e.code === 'KeyV') this._comfortFrameToggleRequested = true;
                 if (e.code === 'KeyZ') this._shiftUpRequested = true;
                 if (e.code === 'KeyX') this._shiftDownRequested = true;
                 if (e.code === 'F1') this._debugToggleRequested = true;
@@ -66,6 +68,7 @@ export class InputManager {
         this._handleBlur = () => {
             this.keys = {};
             this._cameraSwitchRequested = false;
+            this._comfortFrameToggleRequested = false;
             this._shiftUpRequested = false;
             this._shiftDownRequested = false;
             this._pauseRequested = false;
@@ -132,6 +135,12 @@ export class InputManager {
         if (this._gpConsumeButton(3)) return true;
         const value = this._cameraSwitchRequested;
         this._cameraSwitchRequested = false;
+        return value;
+    }
+
+    consumeComfortFrameToggle() {
+        const value = this._comfortFrameToggleRequested;
+        this._comfortFrameToggleRequested = false;
         return value;
     }
 
