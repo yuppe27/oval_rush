@@ -186,6 +186,16 @@
             <div id="hud-gear">GEAR: 1</div>
         </div>
         <div id="hud-debug-panel"></div>
+
+        <!-- Comfort frame overlay (3D motion sickness mitigation, toggle with V) -->
+        <div id="hud-comfort-frame" aria-hidden="true">
+            <div class="cf-cockpit-top"></div>
+            <div class="cf-cockpit-bottom"></div>
+            <div class="cf-horizon"></div>
+            <div class="cf-reticle"></div>
+            <div class="cf-vignette"></div>
+        </div>
+        <div id="hud-comfort-toast" aria-live="polite"></div>
     </div>
 
     <!-- Center: Countdown -->
@@ -263,6 +273,6 @@
         }
     })();
     </script>
-    <script type="module" src="js/main.js?v=22"></script>
+    <script type="module" src="js/main.js?v=23"></script>
 </body>
 </html>

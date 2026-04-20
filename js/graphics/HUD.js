@@ -5,6 +5,8 @@
 import { loadRanking, qualifiesForRanking } from '../race/Ranking.js';
 import { formatMs } from '../core/Utils.js';
 
+const COMFORT_FRAME_STORAGE_KEY = 'ovalrush_comfort_frame';
+
 export class HUD {
     constructor() {
         // Speed / gear (bottom-left)
@@ -31,6 +33,13 @@ export class HUD {
         this.resultEl = document.getElementById('hud-result');
         this.resultContent = document.getElementById('hud-result-content');
 
+        // Comfort frame (3D motion sickness mitigation overlay)
+        this.comfortFrameEl = document.getElementById('hud-comfort-frame');
+        this.comfortToastEl = document.getElementById('hud-comfort-toast');
+        this._comfortFrameEnabled = this._loadComfortFramePref();
+        this._comfortToastTimer = null;
+        this._applyComfortFrame();
+
         // Countdown tracking
         this._prevCountdown = null;
 
@@ -49,6 +58,65 @@ export class HUD {
     setRaceContext(courseId, difficulty) {
         this._courseId = courseId;
         this._difficulty = difficulty;
+    }
+
+    /**
+     * Toggle the fixed on-screen reference frame (3D motion sickness mitigation).
+     * The frame draws a stationary cockpit-style border, a horizon bar, a central
+     * reticle, and a soft peripheral vignette so the eyes have a fixed anchor
+     * while the world camera pitches, rolls and accelerates. State is persisted
+     * in localStorage so the user only has to enable it once.
+     * @returns {boolean} new enabled state
+     */
+    toggleComfortFrame() {
+        this._comfortFrameEnabled = !this._comfortFrameEnabled;
+        this._applyComfortFrame();
+        this._saveComfortFramePref();
+        this._showComfortToast(this._comfortFrameEnabled);
+        return this._comfortFrameEnabled;
+    }
+
+    isComfortFrameEnabled() {
+        return this._comfortFrameEnabled;
+    }
+
+    _applyComfortFrame() {
+        if (!this.comfortFrameEl) return;
+        this.comfortFrameEl.classList.toggle('active', this._comfortFrameEnabled);
+    }
+
+    _loadComfortFramePref() {
+        try {
+            return localStorage.getItem(COMFORT_FRAME_STORAGE_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    _saveComfortFramePref() {
+        try {
+            localStorage.setItem(
+                COMFORT_FRAME_STORAGE_KEY,
+                this._comfortFrameEnabled ? '1' : '0'
+            );
+        } catch {
+            // localStorage unavailable (private mode, sandbox) — silently ignore
+        }
+    }
+
+    _showComfortToast(enabled) {
+        if (!this.comfortToastEl) return;
+        this.comfortToastEl.textContent = enabled
+            ? 'COMFORT FRAME: ON'
+            : 'COMFORT FRAME: OFF';
+        this.comfortToastEl.classList.add('show');
+        if (this._comfortToastTimer !== null) {
+            clearTimeout(this._comfortToastTimer);
+        }
+        this._comfortToastTimer = setTimeout(() => {
+            this.comfortToastEl?.classList.remove('show');
+            this._comfortToastTimer = null;
+        }, 1400);
     }
 
     update(vehicle, race, dt) {

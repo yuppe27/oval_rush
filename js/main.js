@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { GameLoop } from './core/GameLoop.js';
 import { Renderer } from './graphics/Renderer.js';
 import { CameraController } from './graphics/CameraController.js?v=2';
-import { HUD } from './graphics/HUD.js?v=2';
-import { InputManager } from './input/InputManager.js?v=2';
+import { HUD } from './graphics/HUD.js?v=3';
+import { InputManager } from './input/InputManager.js?v=3';
 import { PlayerVehicle } from './vehicles/PlayerVehicle.js?v=5';
 import { CourseBuilder } from './courses/CourseBuilder.js?v=2';
 import { resolveCourse } from './courses/CourseData.js';
@@ -165,6 +165,10 @@ class Game {
             this.input.update();
             this._syncPauseAvailability();
             this._processDebugInput();
+
+            if (!this._debugActive && this.input.consumeComfortFrameToggle()) {
+                this.hud.toggleComfortFrame();
+            }
 
             if (!this._debugActive && this.input.consumePause() && this._pauseAvailability) {
                 if (this._onPauseToggle) this._onPauseToggle();
