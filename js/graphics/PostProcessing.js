@@ -28,9 +28,9 @@ export class PostProcessing {
 
         this.bloomPass = new UnrealBloomPass(
             new THREE.Vector2(width, height),
-            0.55,
-            0.6,
-            0.85
+            0.18,
+            0.3,
+            0.95
         );
         this.composer.addPass(this.bloomPass);
 
