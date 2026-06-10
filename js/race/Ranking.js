@@ -22,7 +22,8 @@ export function loadRanking(courseId, difficulty) {
 }
 
 /**
- * Insert a new score. Returns the 1-based rank if it made the list, or 0 if not.
+ * Insert a new score. Returns the 1-based rank if it made the list, 0 if not,
+ * or -1 if the score could not be persisted (storage unavailable / quota).
  */
 export function insertRanking(courseId, difficulty, entry) {
     const list = loadRanking(courseId, difficulty);
@@ -47,8 +48,9 @@ export function insertRanking(courseId, difficulty, entry) {
 
     try {
         localStorage.setItem(storageKey(courseId, difficulty), JSON.stringify(list));
-    } catch {
-        // Ignore storage failures
+    } catch (e) {
+        console.warn('Failed to save ranking:', e);
+        return -1;
     }
 
     return rank < MAX_ENTRIES ? rank + 1 : 0;

@@ -88,10 +88,17 @@ export class InputManager {
             }
         };
 
+        this._handleGamepadDisconnected = () => {
+            // Drop stale button states so edge detection works on reconnect.
+            this.gamepad = null;
+            this._gpPrevButtons = {};
+        };
+
         this._listen(window, 'keydown', this._handleKeyDown);
         this._listen(window, 'keyup', this._handleKeyUp);
         this._listen(window, 'blur', this._handleBlur);
         this._listen(window, 'storage', this._handleStorage);
+        this._listen(window, 'gamepaddisconnected', this._handleGamepadDisconnected);
 
         this._initTouch();
         if (this._steeringMode === 'gyro') {

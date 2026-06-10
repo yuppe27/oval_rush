@@ -313,6 +313,10 @@ class Game {
                 position: this.raceManager.playerPosition,
             });
             saveBtn.disabled = true;
+            if (rank < 0) {
+                saveBtn.textContent = 'SAVE FAILED';
+                return;
+            }
             saveBtn.textContent = 'SAVED!';
             // rank is 1-based; pass 0-based index (-1 if not on the list)
             this.hud.refreshRankingDisplay(this._courseId, this._difficulty, rank - 1);
@@ -335,6 +339,9 @@ class Game {
 
     retry() {
         this._setDebugMode(false);
+        // Result buttons are re-rendered and re-bound on the next finish;
+        // drop the current listeners so retry cycles do not stack handlers.
+        this._removeResultButtonListeners();
         this._retryListenerAdded = false;
         this._pendingRollingStartLaunch = false;
         if (this._resultKeyHandler) {
