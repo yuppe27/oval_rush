@@ -93,7 +93,7 @@ export class VehicleModel {
         if (_glbCache.promise) return _glbCache.promise;
 
         const loader = new GLTFLoader();
-        _glbCache.promise = new Promise((resolve, reject) => {
+        _glbCache.promise = new Promise((resolve) => {
             loader.load(
                 CAR_GLB_PATH,
                 (gltf) => {
@@ -102,12 +102,65 @@ export class VehicleModel {
                 },
                 undefined,
                 (err) => {
-                    console.error('Failed to load car.glb:', err);
-                    reject(err);
+                    console.error('Failed to load car.glb, using procedural fallback model:', err);
+                    _glbCache.scene = VehicleModel._buildFallbackTemplate();
+                    resolve();
                 }
             );
         });
         return _glbCache.promise;
+    }
+
+    /**
+     * Procedural stand-in used when the GLB fails to load, so cars are never
+     * invisible. Material names mirror the GLB ones ('BodyBlue.001', 'RoofDark',
+     * 'Taillight') so per-car coloring, liveries and brake lights keep working.
+     * Built long-side along +X like the GLB; _buildFromGLB normalizes the rest.
+     * @returns {THREE.Group}
+     */
+    static _buildFallbackTemplate() {
+        const group = new THREE.Group();
+
+        const bodyMat = new THREE.MeshStandardMaterial({
+            color: 0xcc0000, roughness: 0.4, metalness: 0.2,
+        });
+        bodyMat.name = 'BodyBlue.001';
+        const body = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.55, 1.85), bodyMat);
+        body.position.y = 0.62;
+        group.add(body);
+
+        const roofMat = new THREE.MeshStandardMaterial({
+            color: 0x661111, roughness: 0.35, metalness: 0.2,
+        });
+        roofMat.name = 'RoofDark';
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 1.5), roofMat);
+        cabin.position.set(-0.25, 1.1, 0);
+        group.add(cabin);
+
+        const wheelMat = new THREE.MeshStandardMaterial({
+            color: 0x1a1a1a, roughness: 0.9, metalness: 0.0,
+        });
+        wheelMat.name = 'FallbackWheel';
+        const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 14);
+        wheelGeo.rotateX(Math.PI / 2);
+        for (const x of [1.45, -1.45]) {
+            for (const z of [0.85, -0.85]) {
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.position.set(x, 0.34, z);
+                group.add(wheel);
+            }
+        }
+
+        const tailMat = new THREE.MeshStandardMaterial({ color: 0x880808 });
+        tailMat.name = 'Taillight';
+        const tailGeo = new THREE.BoxGeometry(0.1, 0.16, 0.34);
+        for (const z of [0.6, -0.6]) {
+            const tail = new THREE.Mesh(tailGeo, tailMat);
+            tail.position.set(-2.2, 0.68, z);
+            group.add(tail);
+        }
+
+        return group;
     }
 
     /**
