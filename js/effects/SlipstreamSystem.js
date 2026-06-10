@@ -16,6 +16,16 @@ export class SlipstreamSystem {
         this._streamOffsets = [-1.15, -0.58, 0, 0.58, 1.15];
         this._linePos = new Float32Array(this._streamOffsets.length * 6);
         this._time = 0;
+
+        // Scratch vectors reused every frame to avoid per-frame allocations.
+        this._vPlayerForward = new THREE.Vector3();
+        this._vToAI = new THREE.Vector3();
+        this._vAIForward = new THREE.Vector3();
+        this._vRight = new THREE.Vector3();
+        this._vRear = new THREE.Vector3();
+        this._vLineDir = new THREE.Vector3();
+        this._vA = new THREE.Vector3();
+        this._vB = new THREE.Vector3();
         if (this.scene) {
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.BufferAttribute(this._linePos, 3));
@@ -42,25 +52,27 @@ export class SlipstreamSystem {
             return this.currentStrength;
         }
 
-        const playerForward = new THREE.Vector3(Math.sin(player.rotation), 0, Math.cos(player.rotation)).normalize();
+        const playerForward = this._vPlayerForward.set(Math.sin(player.rotation), 0, Math.cos(player.rotation));
         let bestDist = Infinity;
         this.bestVehicle = null;
 
         for (const ai of aiController.vehicles) {
-            const toAI = ai.position.clone().sub(player.position);
-            const distance = toAI.length();
+            const toAIDir = this._vToAI.subVectors(ai.position, player.position);
+            const distance = toAIDir.length();
             if (distance < this.minDistance || distance > this.maxDistance) continue;
 
-            const toAIDir = toAI.clone().normalize();
+            toAIDir.divideScalar(distance);
             const forwardDot = playerForward.dot(toAIDir);
             if (forwardDot < this.maxAngleDot) continue;
 
-            const aiForward = ai.forward?.clone().setY(0).normalize();
-            if (aiForward && aiForward.lengthSq() > 1e-6) {
-                // Ensure player is in the wake behind the front car.
-                const wakeDir = aiForward.clone().multiplyScalar(-1);
-                const wakeDot = wakeDir.dot(toAIDir.clone().multiplyScalar(-1));
-                if (wakeDot < this.maxAngleDot) continue;
+            if (ai.forward) {
+                const aiForward = this._vAIForward.copy(ai.forward).setY(0);
+                if (aiForward.lengthSq() > 1e-6) {
+                    aiForward.normalize();
+                    // Ensure player is in the wake behind the front car:
+                    // (-aiForward)·(-toAIDir) simplifies to aiForward·toAIDir.
+                    if (aiForward.dot(toAIDir) < this.maxAngleDot) continue;
+                }
             }
 
             if (distance < bestDist) {
@@ -105,16 +117,20 @@ export class SlipstreamSystem {
         );
 
         const ai = this.bestVehicle;
-        const aiForward = ai.forward?.clone().setY(0).normalize() ?? new THREE.Vector3(
-            Math.sin(player.rotation),
-            0,
-            Math.cos(player.rotation)
-        );
-        if (aiForward.lengthSq() < 1e-6) aiForward.set(0, 0, 1);
-        const aiRight = new THREE.Vector3(-aiForward.z, 0, aiForward.x).normalize();
-        const rear = ai.position.clone().addScaledVector(aiForward, -1.4).setY(ai.position.y + 0.55);
-        const toPlayer = player.position.clone().sub(rear).setY(0);
-        const lineDir = toPlayer.lengthSq() > 1e-6 ? toPlayer.normalize() : aiForward.clone().multiplyScalar(-1);
+        const aiForward = this._vAIForward;
+        if (ai.forward) {
+            aiForward.copy(ai.forward).setY(0);
+            if (aiForward.lengthSq() > 1e-6) aiForward.normalize();
+            else aiForward.set(0, 0, 1);
+        } else {
+            aiForward.set(Math.sin(player.rotation), 0, Math.cos(player.rotation));
+        }
+        const aiRight = this._vRight.set(-aiForward.z, 0, aiForward.x).normalize();
+        const rear = this._vRear.copy(ai.position).addScaledVector(aiForward, -1.4).setY(ai.position.y + 0.55);
+        const toPlayer = this._vLineDir.subVectors(player.position, rear).setY(0);
+        const lineDir = toPlayer.lengthSq() > 1e-6
+            ? toPlayer.normalize()
+            : toPlayer.copy(aiForward).multiplyScalar(-1);
         const len = THREE.MathUtils.clamp(rear.distanceTo(player.position), this.minDistance, this.maxDistance);
         const swayAmp = 0.14 + this.currentStrength * 0.22;
 
@@ -123,10 +139,9 @@ export class SlipstreamSystem {
             const phase = this._time * (7 + this.currentStrength * 4) + i * 0.9;
             const sway = Math.sin(phase) * swayAmp * (1 - Math.abs(offset) * 0.28);
             const yLift = Math.cos(phase * 0.85) * 0.05;
-            const a = rear.clone()
-                .addScaledVector(aiRight, offset + sway)
-                .add(new THREE.Vector3(0, yLift, 0));
-            const b = a.clone()
+            const a = this._vA.copy(rear).addScaledVector(aiRight, offset + sway);
+            a.y += yLift;
+            const b = this._vB.copy(a)
                 .addScaledVector(lineDir, len * (0.84 + this.currentStrength * 0.12))
                 .addScaledVector(aiRight, sway * 1.4);
             const idx = i * 6;

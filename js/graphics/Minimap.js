@@ -34,6 +34,9 @@ export class Minimap {
         this._coursePoints = this._buildCoursePoints();
         this._bounds = this._computeBounds(this._coursePoints);
 
+        this._displayValue = '';
+        this._skipFrame = false;
+
         // Pre-render course outline to offscreen canvas
         this._bgCanvas = document.createElement('canvas');
         this._bgCanvas.width = this._canvas.width;
@@ -125,9 +128,18 @@ export class Minimap {
     update(player, aiController, raceState) {
         // Hide during result screens
         const hidden = raceState === 'gameover' || raceState === 'result';
-        this._canvas.style.display = hidden ? 'none' : '';
+        const display = hidden ? 'none' : '';
+        if (display !== this._displayValue) {
+            this._displayValue = display;
+            this._canvas.style.display = display;
+        }
 
         if (hidden) return;
+
+        // The 140px map does not need full frame rate; redrawing every other
+        // frame halves the Canvas 2D cost without visible stutter.
+        this._skipFrame = !this._skipFrame;
+        if (this._skipFrame) return;
 
         const ctx = this._ctx;
         const s = this._size;

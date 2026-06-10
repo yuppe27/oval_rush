@@ -29,6 +29,12 @@ export class Renderer {
         this._activeCamera = null;
         this.applyQualityProfile(options.quality ?? 'auto');
 
+        // Build the composer up front (after the pixel ratio is set) so the
+        // first rendered frame does not pay the EffectComposer setup cost.
+        // The real camera is attached on the first render() call.
+        this._postProcessing = new PostProcessing(this.renderer, this.scene, new THREE.PerspectiveCamera());
+        this._postProcessing.setEnabled(this.resolvedQuality !== 'low');
+
         this._handleResize = () => this._onResize();
         window.addEventListener('resize', this._handleResize);
     }
@@ -105,11 +111,7 @@ export class Renderer {
     render(camera) {
         if (camera !== this._activeCamera) {
             this._activeCamera = camera;
-            if (this._postProcessing) this._postProcessing.setCamera(camera);
-        }
-        if (!this._postProcessing) {
-            this._postProcessing = new PostProcessing(this.renderer, this.scene, camera);
-            this._postProcessing.setEnabled(this.resolvedQuality !== 'low');
+            this._postProcessing.setCamera(camera);
         }
         this._postProcessing.render();
     }

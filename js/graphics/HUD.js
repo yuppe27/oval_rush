@@ -119,18 +119,40 @@ export class HUD {
         }, 1400);
     }
 
+    // ── Cached DOM writers ──
+    // The HUD is updated every rendered frame; most values only change a few
+    // times per second. Skipping identical writes avoids needless style/layout
+    // work in the browser.
+    _setText(el, value) {
+        if (!el || el.__hudText === value) return;
+        el.__hudText = value;
+        el.textContent = value;
+    }
+
+    _setDisplay(el, value) {
+        if (!el || el.__hudDisplay === value) return;
+        el.__hudDisplay = value;
+        el.style.display = value;
+    }
+
+    _setColor(el, value) {
+        if (!el || el.__hudColor === value) return;
+        el.__hudColor = value;
+        el.style.color = value;
+    }
+
     update(vehicle, race, dt) {
         // ── Speed & Gear ──
         const speed = Math.round(vehicle.getSpeedKmh());
-        this.speedEl.textContent = `${speed} km/h`;
-        this.gearEl.textContent = `GEAR: ${vehicle.getGear()} ${vehicle.transmissionMode}`;
+        this._setText(this.speedEl, `${speed} km/h`);
+        this._setText(this.gearEl, `GEAR: ${vehicle.getGear()} ${vehicle.transmissionMode}`);
 
         if (vehicle.isBoosting) {
-            this.speedEl.style.color = '#ff6600';
+            this._setColor(this.speedEl, '#ff6600');
         } else if (vehicle.isDrifting) {
-            this.speedEl.style.color = '#ffcc00';
+            this._setColor(this.speedEl, '#ffcc00');
         } else {
-            this.speedEl.style.color = '#fff';
+            this._setColor(this.speedEl, '#fff');
         }
         if (!race) return;
 
@@ -140,9 +162,9 @@ export class HUD {
             if (cd !== this._prevCountdown) {
                 this._prevCountdown = cd;
                 if (cd !== '') {
-                    this.countdownEl.textContent = cd;
-                    this.countdownEl.style.display = 'flex';
-                    this.countdownEl.style.color = '#ff6600';
+                    this._setText(this.countdownEl, cd);
+                    this._setDisplay(this.countdownEl, 'flex');
+                    this._setColor(this.countdownEl, '#ff6600');
                     this.countdownEl.classList.remove('countdown-animate');
                     void this.countdownEl.offsetWidth;
                     this.countdownEl.classList.add('countdown-animate');
@@ -150,7 +172,7 @@ export class HUD {
             }
         } else {
             if (this._prevCountdown !== null) {
-                this.countdownEl.style.display = 'none';
+                this._setDisplay(this.countdownEl, 'none');
                 this._prevCountdown = null;
             }
         }
@@ -158,32 +180,32 @@ export class HUD {
         // ── Lap ──
         if (race.state === 'racing' || race.state === 'finish_celebration' || race.state === 'finished') {
             const lap = race.totalLaps > 0 ? Math.min(race.currentLap, race.totalLaps) : race.currentLap;
-            this.lapEl.textContent = race.mode === 'free_run'
+            this._setText(this.lapEl, race.mode === 'free_run'
                 ? `FREE RUN LAP ${lap}`
-                : `LAP ${lap} / ${race.totalLaps}`;
-            this.lapEl.style.display = 'block';
-            this.positionEl.textContent = `POS ${race.playerPosition} / ${race.totalRacers}`;
-            this.positionEl.style.display = 'block';
+                : `LAP ${lap} / ${race.totalLaps}`);
+            this._setDisplay(this.lapEl, 'block');
+            this._setText(this.positionEl, `POS ${race.playerPosition} / ${race.totalRacers}`);
+            this._setDisplay(this.positionEl, 'block');
             this._updateGapDisplay(race, race.state === 'racing');
         } else if (race.state === 'grid_intro' || race.state === 'countdown') {
-            this.lapEl.textContent = race.mode === 'free_run'
+            this._setText(this.lapEl, race.mode === 'free_run'
                 ? 'FREE RUN'
-                : `LAP 1 / ${race.totalLaps}`;
-            this.lapEl.style.display = 'block';
-            this.positionEl.textContent = `POS ${race.playerPosition} / ${race.totalRacers}`;
-            this.positionEl.style.display = 'block';
+                : `LAP 1 / ${race.totalLaps}`);
+            this._setDisplay(this.lapEl, 'block');
+            this._setText(this.positionEl, `POS ${race.playerPosition} / ${race.totalRacers}`);
+            this._setDisplay(this.positionEl, 'block');
             this._updateGapDisplay(race, false);
         } else {
-            this.lapEl.style.display = 'none';
-            this.positionEl.style.display = 'none';
-            this.gapEl.style.display = 'none';
+            this._setDisplay(this.lapEl, 'none');
+            this._setDisplay(this.positionEl, 'none');
+            this._setDisplay(this.gapEl, 'none');
         }
 
         // ── Timer ──
         const showTimer = race.timerEnabled && (race.state === 'countdown' || race.state === 'racing');
         if (showTimer) {
-            this.timerEl.textContent = race.remainingTimeStr;
-            this.timerEl.style.display = 'block';
+            this._setText(this.timerEl, race.remainingTimeStr);
+            this._setDisplay(this.timerEl, 'block');
 
             if (race.timerLow && race.state === 'racing') {
                 this._blinkTimer += dt;
@@ -191,40 +213,40 @@ export class HUD {
                     this._blinkTimer = 0;
                     this._blinkOn = !this._blinkOn;
                 }
-                this.timerEl.style.color = this._blinkOn ? '#ff0000' : '#ff6666';
+                this._setColor(this.timerEl, this._blinkOn ? '#ff0000' : '#ff6666');
             } else {
-                this.timerEl.style.color = '#fff';
+                this._setColor(this.timerEl, '#fff');
                 this._blinkOn = false;
                 this._blinkTimer = 0;
             }
         } else {
-            this.timerEl.style.display = 'none';
+            this._setDisplay(this.timerEl, 'none');
         }
 
         // ── Total time / best lap ──
         if (race.state === 'racing') {
-            this.totalTimeEl.textContent = `TIME ${race.timer.getTotalTimeFormatted()}`;
-            this.totalTimeEl.style.display = 'block';
-            this.bestLapEl.textContent = `BEST ${race.timer.getBestLapFormatted()}`;
-            this.bestLapEl.style.display = 'block';
+            this._setText(this.totalTimeEl, `TIME ${race.timer.getTotalTimeFormatted()}`);
+            this._setDisplay(this.totalTimeEl, 'block');
+            this._setText(this.bestLapEl, `BEST ${race.timer.getBestLapFormatted()}`);
+            this._setDisplay(this.bestLapEl, 'block');
         } else {
-            this.totalTimeEl.style.display = 'none';
-            this.bestLapEl.style.display = 'none';
+            this._setDisplay(this.totalTimeEl, 'none');
+            this._setDisplay(this.bestLapEl, 'none');
         }
 
         // ── Centre message ──
         if (race.isRollingStartCountdown) {
-            this.notifyEl.textContent = 'ROLLING START';
-            this.notifyEl.style.color = '#ff6600';
-            this.notifyEl.style.display = 'block';
+            this._setText(this.notifyEl, 'ROLLING START');
+            this._setColor(this.notifyEl, '#ff6600');
+            this._setDisplay(this.notifyEl, 'block');
             this.notifyEl.classList.add('notify-rolling-start');
         } else if (race.message) {
-            this.notifyEl.textContent = race.message.text;
-            this.notifyEl.style.color = race.message.color;
-            this.notifyEl.style.display = 'block';
+            this._setText(this.notifyEl, race.message.text);
+            this._setColor(this.notifyEl, race.message.color);
+            this._setDisplay(this.notifyEl, 'block');
             this.notifyEl.classList.remove('notify-rolling-start');
         } else {
-            this.notifyEl.style.display = 'none';
+            this._setDisplay(this.notifyEl, 'none');
             this.notifyEl.classList.remove('notify-rolling-start');
         }
 
@@ -235,19 +257,19 @@ export class HUD {
         }
 
         if (race.aiDebugText) {
-            this.aiDebugEl.textContent = race.aiDebugText;
-            this.aiDebugEl.style.display = 'block';
+            this._setText(this.aiDebugEl, race.aiDebugText);
+            this._setDisplay(this.aiDebugEl, 'block');
         } else {
-            this.aiDebugEl.style.display = 'none';
+            this._setDisplay(this.aiDebugEl, 'none');
         }
 
         if (this.slipstreamEl) {
             const slip = vehicle.slipstreamFactor || 0;
             if (slip > 0.08 && race.state === 'racing') {
-                this.slipstreamEl.textContent = `SLIPSTREAM ${(slip * 100).toFixed(0)}%`;
-                this.slipstreamEl.style.display = 'block';
+                this._setText(this.slipstreamEl, `SLIPSTREAM ${(slip * 100).toFixed(0)}%`);
+                this._setDisplay(this.slipstreamEl, 'block');
             } else {
-                this.slipstreamEl.style.display = 'none';
+                this._setDisplay(this.slipstreamEl, 'none');
             }
         }
     }
@@ -390,14 +412,14 @@ export class HUD {
 
     _updateGapDisplay(race, showLive) {
         if (!showLive) {
-            this.gapEl.textContent = 'AHEAD --.-s / BEHIND --.-s';
-            this.gapEl.style.display = 'block';
+            this._setText(this.gapEl, 'AHEAD --.-s / BEHIND --.-s');
+            this._setDisplay(this.gapEl, 'block');
             return;
         }
         const ahead = race.gapAheadSec === null ? '--.-' : race.gapAheadSec.toFixed(1);
         const behind = race.gapBehindSec === null ? '--.-' : race.gapBehindSec.toFixed(1);
-        this.gapEl.textContent = `AHEAD ${ahead}s / BEHIND ${behind}s`;
-        this.gapEl.style.display = 'block';
+        this._setText(this.gapEl, `AHEAD ${ahead}s / BEHIND ${behind}s`);
+        this._setDisplay(this.gapEl, 'block');
     }
 
     getRetryButton() {
@@ -425,16 +447,16 @@ export class HUD {
     }
 
     reset() {
-        this.lapEl.style.display = 'none';
-        this.positionEl.style.display = 'none';
-        this.gapEl.style.display = 'none';
-        if (this.slipstreamEl) this.slipstreamEl.style.display = 'none';
-        this.aiDebugEl.style.display = 'none';
-        this.timerEl.style.display = 'none';
-        this.totalTimeEl.style.display = 'none';
-        this.bestLapEl.style.display = 'none';
-        this.countdownEl.style.display = 'none';
-        this.notifyEl.style.display = 'none';
+        this._setDisplay(this.lapEl, 'none');
+        this._setDisplay(this.positionEl, 'none');
+        this._setDisplay(this.gapEl, 'none');
+        this._setDisplay(this.slipstreamEl, 'none');
+        this._setDisplay(this.aiDebugEl, 'none');
+        this._setDisplay(this.timerEl, 'none');
+        this._setDisplay(this.totalTimeEl, 'none');
+        this._setDisplay(this.bestLapEl, 'none');
+        this._setDisplay(this.countdownEl, 'none');
+        this._setDisplay(this.notifyEl, 'none');
         this.notifyEl.classList.remove('notify-rolling-start');
         this.hideResult();
         this.setDebugPanel(false);

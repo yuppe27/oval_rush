@@ -10,6 +10,21 @@ export class BoostFX {
         this._flash = 0;
         this._time = 0;
         this._prevBoosting = false;
+        this._applied = {};
+    }
+
+    // Cache the last written value per style slot; this runs every frame and
+    // most slots settle to a constant (usually '0.000') outside boosts.
+    _setStyle(el, key, prop, value) {
+        if (!el || this._applied[key] === value) return;
+        this._applied[key] = value;
+        el.style[prop] = value;
+    }
+
+    _setVar(el, key, name, value) {
+        if (!el || this._applied[key] === value) return;
+        this._applied[key] = value;
+        el.style.setProperty(name, value);
     }
 
     update(dt, player) {
@@ -32,24 +47,27 @@ export class BoostFX {
         this._flash = Math.max(0, this._flash - dt * 4.8);
 
         const o = this._opacity.toFixed(3);
-        this.root.style.opacity = o;
+        this._setStyle(this.root, 'root', 'opacity', o);
         const driftDir = player.isDrifting ? Math.sign(player.driftAngle || 0) : 0;
         const driftShift = driftDir * (6 + drift * 10);
         const driftRot = driftDir * drift * 1.8;
-        this.root.style.setProperty('--boost-drift-x', `${driftShift.toFixed(1)}px`);
-        this.root.style.setProperty('--boost-drift-rot', `${driftRot.toFixed(2)}deg`);
+        this._setVar(this.root, 'driftX', '--boost-drift-x', `${driftShift.toFixed(1)}px`);
+        this._setVar(this.root, 'driftRot', '--boost-drift-rot', `${driftRot.toFixed(2)}deg`);
 
         this._lineShift += (180 + speed * 5.8 + boost * 380 + slip * 120) * dt;
-        const lateralPhase = Math.sin(this._time * (4 + highSpeed * 4)) * (1.5 + slip * 2.5 + drift * 5);
-        this.lines.style.backgroundPosition = `${lateralPhase.toFixed(1)}px ${this._lineShift.toFixed(1)}px`;
-        this.lines.style.opacity = Math.min(0.92, highSpeed * 0.24 + slip * 0.22 + drift * 0.18 + boost * 0.64).toFixed(3);
-        this.blur.style.opacity = Math.min(0.84, highSpeed * 0.12 + slip * 0.16 + boost * 0.62 + drift * 0.10).toFixed(3);
-        if (this.vignette) {
-            this.vignette.style.opacity = Math.min(0.58, highSpeed * 0.16 + slip * 0.22 + boost * 0.26).toFixed(3);
+        const linesOpacity = Math.min(0.92, highSpeed * 0.24 + slip * 0.22 + drift * 0.18 + boost * 0.64).toFixed(3);
+        if (linesOpacity !== '0.000') {
+            const lateralPhase = Math.sin(this._time * (4 + highSpeed * 4)) * (1.5 + slip * 2.5 + drift * 5);
+            this._setStyle(this.lines, 'linesPos', 'backgroundPosition',
+                `${lateralPhase.toFixed(1)}px ${this._lineShift.toFixed(1)}px`);
         }
-        if (this.flash) {
-            this.flash.style.opacity = Math.min(0.9, this._flash * (0.55 + boost * 0.2)).toFixed(3);
-        }
+        this._setStyle(this.lines, 'lines', 'opacity', linesOpacity);
+        this._setStyle(this.blur, 'blur', 'opacity',
+            Math.min(0.84, highSpeed * 0.12 + slip * 0.16 + boost * 0.62 + drift * 0.10).toFixed(3));
+        this._setStyle(this.vignette, 'vignette', 'opacity',
+            Math.min(0.58, highSpeed * 0.16 + slip * 0.22 + boost * 0.26).toFixed(3));
+        this._setStyle(this.flash, 'flash', 'opacity',
+            Math.min(0.9, this._flash * (0.55 + boost * 0.2)).toFixed(3));
     }
 
     reset() {
@@ -58,6 +76,7 @@ export class BoostFX {
         this._flash = 0;
         this._time = 0;
         this._prevBoosting = false;
+        this._applied = {};
         if (this.root) this.root.style.opacity = '0';
         if (this.lines) this.lines.style.opacity = '0';
         if (this.blur) this.blur.style.opacity = '0';
